@@ -1,5 +1,7 @@
 ﻿(function(){
-  const PREFIX = 'paperReader.local.';
+  const BASE_PREFIX = 'paperReader.local.';
+  const HANDLE_DB = 'paperReaderHandles';
+  const HANDLE_STORE = 'handles';
   const MARK = /(^|[_\-\s])(zh|cn|chinese|translation|translated|中文|译文|翻译|中译)($|[_\-\s])/i;
   const EXT = ['.pdf', '.md', '.txt', '.html', '.htm'];
   const state = {
@@ -16,17 +18,23 @@
     drawSize: 4,
     drawing: null,
     libraryHidden: false,
+    notesHidden: false,
+    user: null,
   };
   const $ = (s) => document.querySelector(s);
   const els = {
     pick: $('#pickFolderBtn'), refresh: $('#refreshFolderBtn'), hideLibrary: $('#hideLibraryBtn'), showLibrary: $('#showLibraryBtn'),
+    hideNotes: $('#hideNotesBtn'), showNotes: $('#showNotesBtn'),
     input: $('#folderInput'), count: $('#paperCount'), search: $('#searchInput'),
     filters: $('#filterBar'), list: $('#paperList'), title: $('#activeTitle'), meta: $('#activeMeta'),
     oname: $('#originalName'), tname: $('#translationName'), orig: $('#originalViewer'), trans: $('#translationViewer'),
     read: $('#toggleReadBtn'), save: $('#saveNotesBtn'), add: $('#addNoteBtn'), loc: $('#noteLocation'), txt: $('#noteText'),
     notes: $('#notesList'), drawBtn: $('#drawBtn'), drawToolbar: $('#drawToolbar'), drawColor: $('#drawColor'),
     drawSize: $('#drawSize'), clearDraw: $('#clearDrawBtn'), exportBtn: $('#exportBtn'), importBtn: $('#importBtn'),
-    importInput: $('#importInput'), aiBtn: $('#aiBtn'), aiDialog: $('#aiDialog'), toast: $('#toast')
+    importInput: $('#importInput'), aiBtn: $('#aiBtn'), aiDialog: $('#aiDialog'), toast: $('#toast'),
+    loginBtn: $('#loginBtn'), userInfo: $('#userInfo'), userName: $('#userName'), logoutBtn: $('#logoutBtn'),
+    authDialog: $('#authDialog'), authForm: $('#authForm'), authName: $('#authName'), authPassword: $('#authPassword'),
+    authError: $('#authError'), authCancel: $('#authCancelBtn')
   };
 
   if (window.pdfjsLib) window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js';
@@ -50,8 +58,13 @@
     return /(?:^|[_\-\s])(zh|cn|chinese|translation|translated)(?:$|[_\-\s])/.test(s)
       || /(中文|中文版|译文|翻译|翻译版|中译|academic[_\-\s]*translation)/i.test(s);
   }
-  function id(f){ return [(f.webkitRelativePath || f.name), f.size, f.lastModified].join('|'); }
-  function key(kind, paperId){ return PREFIX + kind + '.' + btoa(unescape(encodeURIComponent(paperId))).replace(/=+$/, ''); }
+  function pathOf(f){ return f.webkitRelativePath || f._relativePath || f.name; }
+  function id(f){ return [pathOf(f), f.size, f.lastModified].join('|'); }
+  function profileId(){ return state.user?.id || 'guest'; }
+  function storagePrefix(){ return BASE_PREFIX + 'profile.' + profileId() + '.'; }
+  function appKey(name){ return BASE_PREFIX + name; }
+  function profileKey(name){ return storagePrefix() + name; }
+  function key(kind, paperId){ return storagePrefix() + kind + '.' + btoa(unescape(encodeURIComponent(paperId))).replace(/=+$/, ''); }
   function get(k, d){ try { const raw = localStorage.getItem(k); return raw ? JSON.parse(raw) : d; } catch { return d; } }
   function set(k, v){ localStorage.setItem(k, JSON.stringify(v)); }
   function esc(v){ return String(v || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -62,13 +75,130 @@
   function loadDraw(p){ return get(key('draw', p.id), { pages: {} }); }
   function saveDraw(p, data){ set(key('draw', p.id), data); }
   function toast(msg){ els.toast.textContent = msg; els.toast.classList.remove('hidden'); clearTimeout(toast.t); toast.t = setTimeout(() => els.toast.classList.add('hidden'), 1800); }
-  function setCss(name, value){ document.documentElement.style.setProperty(name, value); localStorage.setItem(PREFIX + 'layout.' + name, value); }
+  function setCss(name, value){ document.documentElement.style.setProperty(name, value); localStorage.setItem(profileKey('layout.' + name), value); }
   function loadLayout(){
     ['--library-width','--original-width','--translation-width','--notes-width'].forEach(name => {
-      const value = localStorage.getItem(PREFIX + 'layout.' + name);
+      const value = localStorage.getItem(profileKey('layout.' + name));
       if (value) document.documentElement.style.setProperty(name, value);
     });
-    setLibraryHidden(localStorage.getItem(PREFIX + 'libraryHidden') === '1', false);
+    setLibraryHidden(localStorage.getItem(profileKey('libraryHidden')) === '1', false);
+    setNotesHidden(localStorage.getItem(profileKey('notesHidden')) === '1', false);
+  }
+
+  function userIdFromName(value){
+    return value.trim().toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5._-]+/g, '-').replace(/^-+|-+$/g, '') || 'user';
+  }
+
+  async function digest(value){
+    if (!crypto.subtle) {
+      let h = 2166136261;
+      for (let i = 0; i < value.length; i++) h = Math.imul(h ^ value.charCodeAt(i), 16777619);
+      return String(h >>> 0);
+    }
+    const bytes = new TextEncoder().encode(value);
+    const hash = await crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  function loadUsers(){ return get(appKey('users'), {}); }
+  function saveUsers(users){ set(appKey('users'), users); }
+
+  function applyUser(){
+    if (state.user) {
+      els.loginBtn.classList.add('hidden');
+      els.userInfo.classList.remove('hidden');
+      els.userName.textContent = state.user.name;
+    } else {
+      els.loginBtn.classList.remove('hidden');
+      els.userInfo.classList.add('hidden');
+      els.userName.textContent = '';
+    }
+  }
+
+  async function login(nameValue, passwordValue){
+    const name = nameValue.trim();
+    const password = passwordValue;
+    if (!name || !password) throw new Error('请输入用户名和密码');
+    const id = userIdFromName(name);
+    const users = loadUsers();
+    const passwordHash = await digest(id + ':' + password);
+    if (users[id] && users[id].passwordHash !== passwordHash) throw new Error('密码不正确');
+    users[id] = users[id] || { id, name, passwordHash, createdAt: new Date().toISOString() };
+    users[id].name = name;
+    users[id].lastLoginAt = new Date().toISOString();
+    saveUsers(users);
+    state.user = { id, name };
+    set(appKey('session'), state.user);
+    applyUser();
+    loadLayout();
+    clear(state.papers.length ? '已切换用户，请重新选择文献。' : '选择一个本机文件夹开始');
+    renderList();
+    await restoreSavedFolder();
+  }
+
+  function logout(){
+    state.user = null;
+    localStorage.removeItem(appKey('session'));
+    state.directoryHandle = null;
+    state.papers = [];
+    state.files = [];
+    state.active = null;
+    applyUser();
+    loadLayout();
+    clear('已退出登录');
+    renderList();
+    els.refresh.disabled = true;
+  }
+
+  function openHandleDb(){
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(HANDLE_DB, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(HANDLE_STORE);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function handleStore(mode, fn){
+    const db = await openHandleDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(HANDLE_STORE, mode);
+      const store = tx.objectStore(HANDLE_STORE);
+      const req = fn(store);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+      tx.oncomplete = () => db.close();
+      tx.onerror = () => { db.close(); reject(tx.error); };
+    });
+  }
+
+  function handleKey(){ return profileId() + ':directory'; }
+  async function saveDirectoryHandle(handle){
+    if (!window.indexedDB || !handle) return;
+    try { await handleStore('readwrite', store => store.put(handle, handleKey())); } catch {}
+  }
+  async function loadDirectoryHandle(){
+    if (!window.indexedDB) return null;
+    try { return await handleStore('readonly', store => store.get(handleKey())); } catch { return null; }
+  }
+  async function ensureFolderPermission(handle, ask){
+    if (!handle?.queryPermission) return true;
+    const opts = { mode: 'read' };
+    if (await handle.queryPermission(opts) === 'granted') return true;
+    if (ask && handle.requestPermission) return await handle.requestPermission(opts) === 'granted';
+    return false;
+  }
+
+  async function restoreSavedFolder(){
+    const handle = await loadDirectoryHandle();
+    if (!handle) return;
+    state.directoryHandle = handle;
+    els.refresh.disabled = false;
+    if (await ensureFolderPermission(handle, false)) {
+      scan(await filesFromDirectoryHandle(handle), '已恢复上次文件夹');
+    } else {
+      toast('浏览器记得上次文件夹，点击“刷新”重新授权');
+    }
   }
 
   function saveNotes(){
@@ -127,11 +257,11 @@
     return candidates[0]?.item || null;
   }
 
-  function scan(files){
+  function scan(files, message = '已读取本机文件夹'){
     state.files = files;
     const docs = [];
     for (const f of files) {
-      const path = f.webkitRelativePath || f.name;
+      const path = pathOf(f);
       const e = ext(path);
       if (EXT.includes(e)) docs.push({ file: f, path, ext: e, stem: stem(path), translationLike: looksTranslation(path) });
     }
@@ -146,7 +276,7 @@
     state.active = null;
     clear('已读取文件夹，请从左侧选择文献。');
     renderList();
-    toast('已读取本机文件夹');
+    toast(message);
     els.refresh.disabled = false;
   }
 
@@ -157,7 +287,8 @@
         const rel = prefix ? `${prefix}/${entryName}` : entryName;
         if (entry.kind === 'file') {
           const file = await entry.getFile();
-          Object.defineProperty(file, 'webkitRelativePath', { value: rel, configurable: true });
+          try { Object.defineProperty(file, 'webkitRelativePath', { value: rel, configurable: true }); }
+          catch { file._relativePath = rel; }
           files.push(file);
         } else if (entry.kind === 'directory') {
           await walk(entry, rel);
@@ -172,6 +303,7 @@
     if ('showDirectoryPicker' in window) {
       try {
         state.directoryHandle = await window.showDirectoryPicker({ mode: 'read' });
+        await saveDirectoryHandle(state.directoryHandle);
         scan(await filesFromDirectoryHandle(state.directoryHandle));
         return;
       } catch (err) {
@@ -182,9 +314,14 @@
   }
 
   async function refreshFolder(){
+    if (!state.directoryHandle) state.directoryHandle = await loadDirectoryHandle();
     if (state.directoryHandle) {
       try {
-        scan(await filesFromDirectoryHandle(state.directoryHandle));
+        if (!await ensureFolderPermission(state.directoryHandle, true)) {
+          toast('没有获得文件夹读取权限');
+          return;
+        }
+        scan(await filesFromDirectoryHandle(state.directoryHandle), '已刷新文献列表');
         toast('已刷新文献列表');
         return;
       } catch (err) {
@@ -333,7 +470,15 @@
     state.libraryHidden = hidden;
     document.body.classList.toggle('library-hidden', hidden);
     els.showLibrary.classList.toggle('hidden', !hidden);
-    if (persist) localStorage.setItem(PREFIX + 'libraryHidden', hidden ? '1' : '0');
+    if (persist) localStorage.setItem(profileKey('libraryHidden'), hidden ? '1' : '0');
+  }
+
+  function setNotesHidden(hidden, persist = true){
+    state.notesHidden = hidden;
+    document.body.classList.toggle('notes-hidden', hidden);
+    els.showNotes.classList.toggle('hidden', !hidden);
+    if (persist) localStorage.setItem(profileKey('notesHidden'), hidden ? '1' : '0');
+    requestAnimationFrame(() => document.querySelectorAll('.draw-layer').forEach(c => { resizeDrawCanvas(c); restoreDrawCanvas(c); }));
   }
 
   function renderNotes(){
@@ -363,7 +508,7 @@
     const payload = { app: 'paper-reader', exportedAt: new Date().toISOString(), items: {} };
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (k && k.startsWith(PREFIX)) payload.items[k] = localStorage.getItem(k);
+      if (k && k.startsWith(BASE_PREFIX)) payload.items[k] = localStorage.getItem(k);
     }
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'paper-reader-data.json'; a.click(); URL.revokeObjectURL(a.href);
@@ -372,7 +517,7 @@
   async function importData(file){
     const payload = JSON.parse(await file.text());
     if (payload.app !== 'paper-reader' || !payload.items) throw new Error('不是 Paper Reader 导出的数据');
-    Object.entries(payload.items).forEach(([k, v]) => { if (k.startsWith(PREFIX)) localStorage.setItem(k, v); });
+    Object.entries(payload.items).forEach(([k, v]) => { if (k.startsWith(BASE_PREFIX)) localStorage.setItem(k, v); });
     toast('数据已导入');
     if (state.active) { state.notes = loadNotes(state.active); renderNotes(); document.querySelectorAll('.draw-layer').forEach(restoreDrawCanvas); }
     renderList(); updateRead();
@@ -382,6 +527,8 @@
   els.refresh.onclick = refreshFolder;
   els.hideLibrary.onclick = () => setLibraryHidden(true);
   els.showLibrary.onclick = () => setLibraryHidden(false);
+  els.hideNotes.onclick = () => setNotesHidden(true);
+  els.showNotes.onclick = () => setNotesHidden(false);
   els.input.onchange = e => scan(Array.from(e.target.files || []));
   els.search.oninput = renderList;
   els.filters.onclick = e => { const b = e.target.closest('[data-filter]'); if (!b) return; state.filter = b.dataset.filter; els.filters.querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b)); renderList(); };
@@ -395,6 +542,16 @@
   els.exportBtn.onclick = exportData; els.importBtn.onclick = () => els.importInput.click();
   els.importInput.onchange = e => { const f = e.target.files?.[0]; if (f) importData(f).catch(err => alert(err.message)); e.target.value = ''; };
   els.aiBtn.onclick = () => els.aiDialog.showModal();
+  els.loginBtn.onclick = () => { els.authError.textContent = ''; els.authName.value = state.user?.name || ''; els.authPassword.value = ''; els.authDialog.showModal(); };
+  els.logoutBtn.onclick = logout;
+  els.authCancel.onclick = () => els.authDialog.close();
+  els.authForm.addEventListener('submit', e => {
+    e.preventDefault();
+    els.authError.textContent = '';
+    login(els.authName.value, els.authPassword.value)
+      .then(() => els.authDialog.close())
+      .catch(err => { els.authError.textContent = err.message || '登录失败'; });
+  });
   document.querySelectorAll('[data-splitter]').forEach(splitter => {
     splitter.addEventListener('pointerdown', e => {
       e.preventDefault();
@@ -431,6 +588,13 @@
     });
   });
   window.addEventListener('resize', () => document.querySelectorAll('.draw-layer').forEach(c => { resizeDrawCanvas(c); restoreDrawCanvas(c); }));
-  loadLayout();
-  renderList();
+  async function init(){
+    state.user = get(appKey('session'), null);
+    applyUser();
+    loadLayout();
+    clear('选择一个本机文件夹开始');
+    renderList();
+    await restoreSavedFolder();
+  }
+  init();
 })();

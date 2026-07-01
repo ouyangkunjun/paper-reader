@@ -16,7 +16,7 @@
       <div class="library-actions">
         <button id="pickFolderBtn">选择文件夹</button>
         <button id="refreshFolderBtn" disabled>刷新</button>
-        <button id="hideLibraryBtn" title="隐藏文献栏">收起</button>
+        <button id="hideLibraryBtn" class="icon-btn" title="隐藏文献栏" aria-label="隐藏文献栏">×</button>
       </div>
     </header>
     <input id="folderInput" type="file" webkitdirectory directory multiple hidden />
@@ -49,6 +49,8 @@
         <button id="exportBtn">导出数据</button>
         <button id="importBtn">导入数据</button>
         <button id="aiBtn">AI</button>
+        <button id="loginBtn">登录</button>
+        <span id="userInfo" class="user-info hidden"><span id="userName"></span><button id="logoutBtn">退出</button></span>
       </div>
     </header>
 
@@ -72,7 +74,7 @@
       </section>
       <div class="splitter viewer-splitter" data-splitter="translation"></div>
       <aside class="notes">
-        <div class="viewer-head"><strong>批注</strong><button id="addNoteBtn" disabled>添加</button></div>
+        <div class="viewer-head"><strong>批注</strong><span class="head-actions"><button id="addNoteBtn" disabled>添加</button><button id="hideNotesBtn" class="icon-btn" title="隐藏批注栏" aria-label="隐藏批注栏">×</button></span></div>
         <input id="noteLocation" placeholder="例如：第 3 页、图 2" />
         <textarea id="noteText" placeholder="写下批注、问题或想法"></textarea>
         <div id="notesList" class="notes-list"></div>
@@ -80,6 +82,7 @@
     </section>
   </main>
 
+  <button id="showNotesBtn" class="restore-notes hidden">批注</button>
   <div id="toast" class="toast hidden"></div>
 
   <dialog id="aiDialog">
@@ -87,6 +90,20 @@
       <h3>AI 功能</h3>
       <p>GitHub Pages 版本不保存服务器密钥，也不代理 AI 请求。全文翻译、AI 问答、相关文献搜索请运行 Python 增强版。</p>
       <button>知道了</button>
+    </form>
+  </dialog>
+
+  <dialog id="authDialog">
+    <form id="authForm" method="dialog">
+      <h3>本机登录</h3>
+      <p>登录信息只保存在当前浏览器，用来记住你的阅读状态和文件夹授权。</p>
+      <label class="field-label">用户名或邮箱 <input id="authName" autocomplete="username" required /></label>
+      <label class="field-label">密码 <input id="authPassword" type="password" autocomplete="current-password" required /></label>
+      <div id="authError" class="form-error"></div>
+      <div class="dialog-actions">
+        <button type="button" id="authCancelBtn">取消</button>
+        <button type="submit">登录 / 创建</button>
+      </div>
     </form>
   </dialog>
 
