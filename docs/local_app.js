@@ -260,8 +260,8 @@
     }
     rows.forEach(p => {
       const row = document.createElement('div');
-      row.className = 'paper-row' + (state.active && state.active.id === p.id ? ' active' : '');
-      row.innerHTML = `<label class="paper-check"><input type="checkbox" ${state.selected.has(p.id) ? 'checked' : ''} aria-label="选择文献" /></label><button class="paper-open"><div class="paper-title">${esc(p.title)}</div><div class="paper-meta">${isRead(p) ? '已读' : '未读'} · ${p.translation ? '有译文' : '无译文'} · ${size(p.file.size)}</div></button>`;
+      row.className = 'paper-row' + (state.active && state.active.id === p.id ? ' active' : '') + (isRead(p) ? ' read' : '');
+      row.innerHTML = `<label class="paper-check"><input type="checkbox" ${state.selected.has(p.id) ? 'checked' : ''} aria-label="选择文献" /></label><button class="paper-open" title="${esc(p.title)}"><div class="paper-title">${esc(p.title)}</div><div class="paper-meta">${isRead(p) ? '已读' : '未读'} · ${p.translation ? '有译文' : '无译文'} · ${size(p.file.size)}</div></button>`;
       row.querySelector('input').onchange = e => { e.target.checked ? state.selected.add(p.id) : state.selected.delete(p.id); updateLibraryTools(rows); };
       row.querySelector('.paper-open').onclick = () => openPaper(p);
       els.list.appendChild(row);
