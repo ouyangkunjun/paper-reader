@@ -1,0 +1,39 @@
+﻿# Private reader data and uploaded papers
+data/
+translated/
+*.pdf
+*.djvu
+*.epub
+
+# Browser profiles and runtime caches
+edge-profile*/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Rendered/extracted runtime artifacts
+server.out.log
+server.err.log
+server_stdout.log
+server_stderr.log
+*.log
+
+# Local tunnel binary; users can install cloudflared themselves
+tools/cloudflared.exe
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local assistant/tooling metadata
+.claude/
+.agents/
+.codex/
+paper-translation/
+
+# Local release packages
+*.zip

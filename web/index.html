@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>文献双栏阅读器</title>
+    <link rel="stylesheet" href="./styles.css?v=20260612-continuous" />
+  </head>
+  <body>
+    <aside class="library">
+      <header class="library-head">
+        <div>
+          <h1>文献库</h1>
+          <p id="paperCount">正在扫描...</p>
+        </div>
+        <div class="panel-actions">
+          <div class="panel-actions-row">
+            <div class="add-dropdown" id="addDropdown">
+              <button id="addPaperBtn" title="添加文献">+ 添加</button>
+              <div class="add-dropdown-menu" id="addDropdownMenu">
+                <button id="addFileBtn">添加文件</button>
+                <button id="addFolderBtn">添加文件夹</button>
+                <button id="newFolderBtn">新建文件夹</button>
+              </div>
+            </div>
+            <button id="batchSelectBtn" title="多选删除">多选</button>
+          </div>
+          <div class="panel-actions-row">
+            <button id="scopeToggleBtn" class="scope-toggle-btn hidden" title="切换公共/个人文献库">公共</button>
+            <button id="scanBtn" title="重新扫描">刷新</button>
+            <button id="hideLibraryBtn" class="icon-btn" title="隐藏文献库">×</button>
+          </div>
+        </div>
+      </header>
+      <input id="fileInput" type="file" accept=".pdf" multiple hidden />
+      <input id="translationInput" type="file" accept=".pdf,.md,.txt,.html,.htm" hidden />
+      <input id="folderInput" type="file" webkitdirectory directory style="position:absolute;left:-9999px;top:0" />
+      <div id="dropZone" class="drop-zone">拖拽 PDF 到此处上传</div>
+      <input id="searchInput" class="search" placeholder="搜索文件名" />
+      <div class="filters" id="filterBar">
+        <button class="filter-btn active" data-filter="all">全部</button>
+        <button class="filter-btn" data-filter="unread">未读</button>
+        <button class="filter-btn" data-filter="read">已读</button>
+        <button class="filter-btn" data-filter="translated">有译文</button>
+        <button class="filter-btn" data-filter="missing">无译文</button>
+      </div>
+      <div id="batchBar" class="batch-bar hidden">
+        <span id="batchCount">已选 0 篇</span>
+        <button id="batchSelectAllBtn">全选</button>
+        <button id="batchDeselectAllBtn">取消全选</button>
+        <button id="batchDeleteBtn" class="batch-delete-btn">删除所选</button>
+        <button id="batchCancelBtn" class="batch-cancel-btn">取消</button>
+      </div>
+      <div id="paperList" class="paper-list"></div>
+    </aside>
+
+    <div class="splitter splitter-library" data-resize="library" title="拖动调整文献列表宽度"></div>
+    <button id="showLibraryBtn" class="restore-tab restore-library" title="显示文献库">文献</button>
+
+    <main class="desk">
+      <header class="topbar">
+        <div class="title-block">
+          <span id="statusPill" class="pill">未选择</span>
+          <h2 id="activeTitle">选择一篇文献开始阅读</h2>
+          <p id="activeMeta">原文与译文会按文件原样并排显示。</p>
+        </div>
+        <div class="toolbar">
+          <button id="showLibraryTopBtn" class="show-panel-btn">显示文献库</button>
+          <button id="showNotesTopBtn" class="show-panel-btn">显示批注</button>
+          <button id="showAskTopBtn" class="show-panel-btn">显示 AI</button>
+          <button id="toggleReadBtn" disabled>标为已读</button>
+          <button id="drawModeBtn" disabled>标注</button>
+          <button id="openOriginalBtn" disabled>打开原文</button>
+          <button id="openTranslationBtn" disabled>打开译文</button>
+          <button id="extractTitleBtn" disabled>提取标题</button>
+          <button id="commentBtn">评论</button>
+          <button id="uploadTranslationBtn" disabled>上传译文</button>
+          <div class="translate-dropdown" id="translateDropdown">
+            <button id="translateBtn" disabled>翻译 ▾</button>
+            <div class="translate-menu hidden" id="translateMenu">
+              <button data-mode="1">全文翻译</button>
+              <button data-mode="2">选中文字翻译</button>
+              <button data-mode="3">截图翻译</button>
+            </div>
+          </div>
+          <button id="relatedBtn" disabled>相关文献</button>
+          <button id="saveToMyLibraryBtn" class="hidden" title="保存到我的文献库">保存到我的</button>
+          <button id="saveNotesBtn" disabled>保存标注</button>
+          <button id="settingsBtn" title="AI 设置">设置</button>
+          <button id="loginBtn" title="登录/注册">登录</button>
+          <span id="userInfo" class="user-info hidden">
+            <span id="userEmail" class="user-email"></span>
+            <button id="userLogoutBtn" class="user-logout-btn" title="登出">登出</button>
+          </span>
+          <span id="saveStatus" class="save-status"></span>
+        </div>
+      </header>
+
+      <div id="drawToolbar" class="draw-toolbar">
+        <span class="draw-label">标注工具</span>
+        <button id="drawPenBtn" class="draw-btn" data-tool="pen" title="画笔">画笔</button>
+        <button id="drawHighlightBtn" class="draw-btn" data-tool="highlight" title="荧光笔">荧光笔</button>
+        <button id="drawLineBtn" class="draw-btn" data-tool="line" title="直线">直线</button>
+        <button id="drawArrowBtn" class="draw-btn" data-tool="arrow" title="箭头">箭头</button>
+        <button id="drawUnderlineBtn" class="draw-btn" data-tool="underline" title="下划线">下划线</button>
+        <button id="drawRectBtn" class="draw-btn" data-tool="rect" title="方框">方框</button>
+        <button id="drawEllipseBtn" class="draw-btn" data-tool="ellipse" title="圆圈">圆圈</button>
+        <button id="drawEraserBtn" class="draw-btn" data-tool="eraser" title="橡皮擦">橡皮擦</button>
+        <button id="drawAreaEraseBtn" class="draw-btn" data-tool="area-eraser" title="范围擦除">范围擦除</button>
+        <span class="draw-sep"></span>
+        <label class="draw-color-label">颜色</label>
+        <input id="drawColor" type="color" value="#e74c3c" class="draw-color" />
+        <label class="draw-color-label">粗细</label>
+        <input id="drawSize" type="range" min="1" max="20" value="3" class="draw-size" />
+        <button id="drawClearBtn" class="draw-btn draw-btn-danger" title="清除所有标注">清除</button>
+        <button id="drawExitBtn" class="draw-btn" title="退出标注模式">完成</button>
+      </div>
+      <section class="viewer-grid">
+        <section class="viewer-panel original-panel">
+          <div class="viewer-head">
+            <h3>原文</h3>
+            <p id="originalName">PDF / 文献文件</p>
+          </div>
+          <div id="originalViewer" class="viewer empty-view">请选择左侧文献。</div>
+        </section>
+
+        <div class="splitter splitter-viewer" data-resize="original" title="拖动调整原文宽度"></div>
+
+        <section class="viewer-panel translation-panel">
+          <div class="viewer-head">
+            <h3>译文</h3>
+            <p id="translationName">自动匹配同名翻译文件</p>
+          </div>
+          <div id="translationViewer" class="viewer empty-view">未找到对应译文文件。</div>
+        </section>
+
+        <div class="splitter splitter-viewer notes-splitter" data-resize="translation" title="拖动调整译文宽度"></div>
+
+        <aside class="notes" id="notesSidebar">
+          <div class="notes-head">
+            <h3>批注</h3>
+            <div class="panel-actions">
+              <button id="addNoteBtn" disabled>添加</button>
+              <button id="hideNotesBtn" class="icon-btn" title="隐藏批注">×</button>
+            </div>
+          </div>
+          <label>位置</label>
+          <input id="noteLocation" placeholder="例如：第 3 页、图 2" />
+          <label>内容</label>
+          <textarea id="noteText" placeholder="写下这处 PDF 批注的内容"></textarea>
+          <div id="notesList" class="notes-list"></div>
+        </aside>
+
+        <div class="splitter splitter-viewer ask-splitter" data-resize="notes" title="拖动调整批注宽度"></div>
+
+        <aside class="ask-sidebar" id="askSidebar">
+          <div class="ask-header">
+            <div class="ask-title-row">
+              <h3>AI 提问</h3>
+              <span id="currentModel" class="mini-badge"></span>
+              <button id="hideAskBtn" class="icon-btn" title="关闭 AI 提问">×</button>
+            </div>
+            <p class="ask-hint" id="askHint">选择一篇文献后即可提问</p>
+          </div>
+          <div id="askHistory" class="ask-history"></div>
+          <div id="askImgPreview" class="ask-img-preview"></div>
+          <div class="ask-input-row">
+            <button id="askImgBtn" class="ask-img-btn" title="上传图片 (或 Ctrl+V 粘贴)">📎</button>
+            <textarea id="askInput" placeholder="输入问题，支持粘贴或上传图片..." rows="2"></textarea>
+            <button id="askBtn" disabled>发送</button>
+          </div>
+          <input id="askImgInput" type="file" accept="image/*" hidden />
+        </aside>
+
+        <div class="splitter splitter-viewer comment-splitter" data-resize="comment" title="拖动调整评论宽度"></div>
+
+        <aside class="comment-panel" id="commentPanel">
+          <div class="comment-head">
+            <h3>评论</h3>
+            <button id="commentCloseBtn" class="icon-btn" title="关闭评论">×</button>
+          </div>
+          <div id="commentHistory" class="comment-history"></div>
+          <div class="comment-input-row">
+            <textarea id="commentInput" placeholder="写下你的评论..." rows="2"></textarea>
+            <button id="commentSubmitBtn" disabled>发送</button>
+          </div>
+        </aside>
+      </section>
+    </main>
+    <button id="showNotesBtn" class="restore-tab restore-notes" title="显示批注">批注</button>
+    <button id="showAskBtn" class="restore-tab restore-ask" title="显示 AI 提问">AI</button>
+
+    <!-- 相关文献弹窗 -->
+    <div id="relatedOverlay" class="related-overlay hidden">
+      <div class="related-modal">
+        <div class="related-head">
+          <h3>相关文献</h3>
+          <button id="relatedCancelBtn" class="icon-btn" title="取消搜索">停</button>
+          <button id="relatedCloseBtn" class="icon-btn">×</button>
+        </div>
+        <div id="relatedKeywords" class="related-keywords"></div>
+        <div id="relatedResults" class="related-results"></div>
+      </div>
+    </div>
+
+    <!-- 设置弹窗 -->
+    <div id="settingsOverlay" class="settings-overlay hidden">
+      <div class="settings-modal">
+        <div class="settings-head">
+          <h3>AI 设置</h3>
+          <button id="settingsCloseBtn" class="icon-btn">×</button>
+        </div>
+        <div class="settings-body">
+          <label>API 服务商</label>
+          <div class="preset-row">
+            <button class="preset-btn active" data-url="https://generativelanguage.googleapis.com/v1beta/openai" data-model="gemini-3.1-flash-lite">Gemini 免费</button>
+            <button class="preset-btn" data-url="https://api.groq.com/openai/v1" data-model="llama-3.1-8b-instant">Groq 快速</button>
+            <button class="preset-btn" data-url="https://api.deepseek.com" data-model="deepseek-v4-pro">DeepSeek</button>
+            <button class="preset-btn" data-url="https://api.xiaomimimo.com/anthropic" data-model="mimo-v2.5-pro">小米 MiMo</button>
+            <button class="preset-btn" data-url="" data-model="">自定义</button>
+          </div>
+          <p class="preset-hint">所有模型都可以在下面选择"极速"模式，速度更快。</p>
+          <label>API Base URL</label>
+          <input id="settingsBaseUrl" placeholder="https://generativelanguage.googleapis.com/v1beta/openai" />
+          <label>API Key</label>
+          <input id="settingsApiKey" type="password" placeholder="sk-..." />
+          <label>模型名称</label>
+          <input id="settingsModel" placeholder="gemini-3.1-flash-lite" />
+          <label>提问上下文</label>
+          <select id="settingsAskMode">
+            <option value="turbo">极速：最少上下文，最快</option>
+            <option value="quick">快速：少量相关片段</option>
+            <option value="balanced" selected>均衡：摘要 + 相关片段</option>
+            <option value="full">全文：更多上下文，较慢</option>
+          </select>
+          <div class="settings-actions">
+            <button id="settingsSaveBtn">保存</button>
+          </div>
+          <p class="settings-hint">配置保存在浏览器本地，不会上传到服务器。</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 登录弹窗 -->
+    <div id="authOverlay" class="auth-overlay hidden">
+      <div class="auth-modal">
+        <div class="auth-head">
+          <h3 id="authTitle">登录</h3>
+        </div>
+        <div class="auth-body">
+          <div id="authError" class="auth-error hidden"></div>
+          <label>邮箱</label>
+          <input id="authEmail" type="email" placeholder="your@email.com" />
+          <label>密码</label>
+          <input id="authPassword" type="password" placeholder="至少6位" />
+          <div class="auth-actions">
+            <button id="authSubmitBtn">登录</button>
+          </div>
+          <p class="auth-switch">
+            <span id="authSwitchText">没有账号？</span>
+            <button id="authSwitchBtn" class="link-btn">注册</button>
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      window._pdfjsLib = null;
+    </script>
+    <script src="./pdf.min.js" onload="
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = './pdf.worker.min.js';
+      window._pdfjsLib = window.pdfjsLib;
+    "></script>
+    <script src="./app.js?v=20260612-fix-image"></script>
+  </body>
+</html>

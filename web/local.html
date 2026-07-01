@@ -1,0 +1,87 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Paper Reader</title>
+  <link rel="stylesheet" href="local_styles.css" />
+</head>
+<body>
+  <aside class="library">
+    <header class="library-head">
+      <div>
+        <h1>Paper Reader</h1>
+        <p id="paperCount">请选择文件夹</p>
+      </div>
+      <button id="pickFolderBtn">选择文件夹</button>
+    </header>
+    <input id="folderInput" type="file" webkitdirectory directory multiple hidden />
+    <input id="importInput" type="file" accept="application/json,.json" hidden />
+    <input id="searchInput" class="search" placeholder="搜索文件名" />
+    <div id="filterBar" class="filters">
+      <button class="active" data-filter="all">全部</button>
+      <button data-filter="unread">未读</button>
+      <button data-filter="read">已读</button>
+      <button data-filter="translated">有译文</button>
+      <button data-filter="missing">无译文</button>
+    </div>
+    <div id="paperList" class="paper-list"></div>
+  </aside>
+
+  <main class="reader">
+    <header class="topbar">
+      <div class="title-block">
+        <span class="pill">GitHub Pages 本地模式</span>
+        <h2 id="activeTitle">选择一个本机文件夹开始</h2>
+        <p id="activeMeta">文件只在你的浏览器里读取，不会上传到 GitHub 或任何服务器。</p>
+      </div>
+      <div class="toolbar">
+        <button id="toggleReadBtn" disabled>标为已读</button>
+        <button id="drawBtn" disabled>标注</button>
+        <button id="saveNotesBtn" disabled>保存批注</button>
+        <button id="exportBtn">导出数据</button>
+        <button id="importBtn">导入数据</button>
+        <button id="aiBtn">AI</button>
+      </div>
+    </header>
+
+    <div id="drawToolbar" class="draw-toolbar hidden">
+      <button class="draw-tool active" data-tool="pen">画笔</button>
+      <button class="draw-tool" data-tool="highlight">高亮</button>
+      <label>颜色 <input id="drawColor" type="color" value="#e74c3c" /></label>
+      <label>粗细 <input id="drawSize" type="range" min="2" max="26" value="4" /></label>
+      <button id="clearDrawBtn">清除本文标注</button>
+    </div>
+
+    <section class="viewer-grid" id="viewerGrid">
+      <section class="viewer-panel">
+        <div class="viewer-head"><strong>原文</strong><span id="originalName">PDF</span></div>
+        <div id="originalViewer" class="viewer empty">请选择 PDF。</div>
+      </section>
+      <section class="viewer-panel">
+        <div class="viewer-head"><strong>译文</strong><span id="translationName">自动匹配同名译文</span></div>
+        <div id="translationViewer" class="viewer empty">未选择文献。</div>
+      </section>
+      <aside class="notes">
+        <div class="viewer-head"><strong>批注</strong><button id="addNoteBtn" disabled>添加</button></div>
+        <input id="noteLocation" placeholder="例如：第 3 页、图 2" />
+        <textarea id="noteText" placeholder="写下批注、问题或想法"></textarea>
+        <div id="notesList" class="notes-list"></div>
+      </aside>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <dialog id="aiDialog">
+    <form method="dialog">
+      <h3>AI 功能</h3>
+      <p>GitHub Pages 版本不保存服务器密钥，也不代理 AI 请求。全文翻译、AI 问答、相关文献搜索请运行 Python 增强版。</p>
+      <button>知道了</button>
+    </form>
+  </dialog>
+
+  <script src="pdf.min.js"></script>
+  <script src="local_app.js"></script>
+</body>
+</html>
