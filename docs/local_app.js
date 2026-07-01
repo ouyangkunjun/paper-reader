@@ -2,6 +2,7 @@
   const BASE_PREFIX = 'paperReader.local.';
   const HANDLE_DB = 'paperReaderHandles';
   const HANDLE_STORE = 'handles';
+  const DEFAULT_TAGS = ['待读','精读','综述','催化','DFT','机器学习','待翻译'];
   const MARK = /(^|[_\-\s])(zh|cn|chinese|translation|translated|中文|译文|翻译|中译)($|[_\-\s])/i;
   const EXT = ['.pdf', '.md', '.txt', '.html', '.htm'];
   const state = {
@@ -21,16 +22,26 @@
     notesHidden: false,
     user: null,
     selected: new Set(),
+    tagFilter: '',
+    viewMode: 'split',
+    progressTimer: null,
   };
   const $ = (s) => document.querySelector(s);
   const els = {
     pick: $('#pickFolderBtn'), refresh: $('#refreshFolderBtn'), hideLibrary: $('#hideLibraryBtn'), showLibrary: $('#showLibraryBtn'),
     hideNotes: $('#hideNotesBtn'), showNotes: $('#showNotesBtn'),
     input: $('#folderInput'), addFilesInput: $('#addFilesInput'), count: $('#paperCount'), search: $('#searchInput'),
+    stats: $('#libraryStats'), tagFilter: $('#tagFilter'),
     addFolder: $('#addFolderBtn'), addFiles: $('#addFilesBtn'), selectAll: $('#selectAllBtn'), deleteSelected: $('#deleteSelectedBtn'),
     filters: $('#filterBar'), list: $('#paperList'), title: $('#activeTitle'), meta: $('#activeMeta'),
     oname: $('#originalName'), tname: $('#translationName'), orig: $('#originalViewer'), trans: $('#translationViewer'),
     read: $('#toggleReadBtn'), save: $('#saveNotesBtn'), add: $('#addNoteBtn'), loc: $('#noteLocation'), txt: $('#noteText'),
+    allNotesBtn: $('#allNotesBtn'), allNotesDialog: $('#allNotesDialog'), allNotesList: $('#allNotesList'), viewMode: $('#viewModeSelect'),
+    detail: $('#detailPanel'), detailTitle: $('#detailTitle'), detailMeta: $('#detailMeta'), tagList: $('#tagList'), tagPreset: $('#tagPreset'),
+    tagInput: $('#tagInput'), addTag: $('#addTagBtn'), starBtn: $('#starBtn'), renameBtn: $('#renameBtn'),
+    bindTranslation: $('#bindTranslationBtn'), clearTranslation: $('#clearTranslationBtn'), translationDialog: $('#translationDialog'),
+    translationForm: $('#translationForm'), translationSelect: $('#translationSelect'), translationCancel: $('#translationCancelBtn'),
+    backupBanner: $('#backupBanner'), backupExport: $('#backupExportBtn'), backupLater: $('#backupLaterBtn'),
     notes: $('#notesList'), drawBtn: $('#drawBtn'), drawToolbar: $('#drawToolbar'), drawColor: $('#drawColor'),
     drawSize: $('#drawSize'), clearDraw: $('#clearDrawBtn'), exportBtn: $('#exportBtn'), importBtn: $('#importBtn'),
     importInput: $('#importInput'), aiBtn: $('#aiBtn'), aiDialog: $('#aiDialog'), toast: $('#toast'),
@@ -92,10 +103,18 @@
   function size(b){ return b < 1048576 ? Math.round(b / 1024) + ' KB' : (b / 1048576).toFixed(1) + ' MB'; }
   function isRead(p){ return !!get(key('read', p.id), null); }
   function setRead(p, v){ const k = key('read', p.id); if (v) set(k, { read: true, updatedAt: new Date().toISOString() }); else localStorage.removeItem(k); }
+  function loadMeta(p){ return get(key('meta', p.id), { tags: [], starred: false, displayName: '', manualTranslation: null, progress: null, lastOpenedAt: '' }); }
+  function saveMeta(p, meta){ set(key('meta', p.id), { ...meta, updatedAt: new Date().toISOString() }); }
+  function updateMeta(p, patch){ const meta = { ...loadMeta(p), ...patch }; saveMeta(p, meta); return meta; }
   function loadNotes(p){ return get(key('notes', p.id), { items: [] }); }
   function loadDraw(p){ return get(key('draw', p.id), { pages: {} }); }
   function saveDraw(p, data){ set(key('draw', p.id), data); }
   function toast(msg){ els.toast.textContent = msg; els.toast.classList.remove('hidden'); clearTimeout(toast.t); toast.t = setTimeout(() => els.toast.classList.add('hidden'), 1800); }
+  function displayTitle(p){ return loadMeta(p).displayName || p.title; }
+  function fmtTime(v){ return v ? new Date(v).toLocaleString() : '无'; }
+  function isStarred(p){ return !!loadMeta(p).starred; }
+  function paperTags(p){ return loadMeta(p).tags || []; }
+  function noteCount(p){ return (loadNotes(p).items || []).length; }
   function setCss(name, value){ document.documentElement.style.setProperty(name, value); localStorage.setItem(profileKey('layout.' + name), value); }
   function loadLayout(){
     ['--library-width','--original-width','--translation-width','--notes-width'].forEach(name => {
@@ -104,6 +123,7 @@
     });
     setLibraryHidden(localStorage.getItem(profileKey('libraryHidden')) === '1', false);
     setNotesHidden(localStorage.getItem(profileKey('notesHidden')) !== '0', false);
+    setViewMode(localStorage.getItem(profileKey('viewMode')) || 'split', false);
   }
 
   function userIdFromName(value){
@@ -227,6 +247,7 @@
     state.notes.updatedAt = new Date().toISOString();
     set(key('notes', state.active.id), state.notes);
     toast('批注已保存');
+    renderDetail(); renderList(); checkBackupReminder();
   }
 
   function md(text){
@@ -241,16 +262,40 @@
 
   function pass(p){
     const q = els.search.value.trim().toLowerCase();
-    if (q && !(p.title + ' ' + p.path).toLowerCase().includes(q)) return false;
+    const tags = paperTags(p);
+    if (q && !(displayTitle(p) + ' ' + p.title + ' ' + p.path + ' ' + tags.join(' ')).toLowerCase().includes(q)) return false;
+    if (state.tagFilter && !tags.includes(state.tagFilter)) return false;
     if (state.filter === 'read') return isRead(p);
     if (state.filter === 'unread') return !isRead(p);
-    if (state.filter === 'translated') return !!p.translation;
-    if (state.filter === 'missing') return !p.translation;
+    if (state.filter === 'translated') return !!paperTranslation(p);
+    if (state.filter === 'missing') return !paperTranslation(p);
+    if (state.filter === 'starred') return isStarred(p);
     return true;
+  }
+
+  function updateStats(){
+    const total = state.papers.length;
+    const read = state.papers.filter(isRead).length;
+    const starred = state.papers.filter(isStarred).length;
+    const translated = state.papers.filter(p => !!paperTranslation(p)).length;
+    const notes = state.papers.reduce((sum, p) => sum + noteCount(p), 0);
+    els.stats.innerHTML = total
+      ? `<span>总数 ${total}</span><span>已读 ${read}</span><span>星标 ${starred}</span><span>有译文 ${translated}</span><span>无译文 ${total - translated}</span><span>批注 ${notes}</span>`
+      : '<span>暂无文献</span>';
+  }
+
+  function updateTagFilterOptions(){
+    const tags = new Set(DEFAULT_TAGS);
+    state.papers.forEach(p => paperTags(p).forEach(t => tags.add(t)));
+    const current = state.tagFilter;
+    els.tagFilter.innerHTML = '<option value="">全部标签</option>' + [...tags].sort((a,b) => a.localeCompare(b, 'zh-Hans-CN')).map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+    els.tagFilter.value = current;
   }
 
   function renderList(){
     els.list.innerHTML = '';
+    updateStats();
+    updateTagFilterOptions();
     const rows = state.papers.filter(pass);
     els.count.textContent = state.papers.length ? `${rows.length} / ${state.papers.length} 篇` : '请选择文件夹';
     updateLibraryTools(rows);
@@ -260,10 +305,12 @@
     }
     rows.forEach(p => {
       const row = document.createElement('div');
-      row.className = 'paper-row' + (state.active && state.active.id === p.id ? ' active' : '') + (isRead(p) ? ' read' : '');
-      row.innerHTML = `<label class="paper-check"><input type="checkbox" ${state.selected.has(p.id) ? 'checked' : ''} aria-label="选择文献" /></label><button class="paper-open" title="${esc(p.title)}"><div class="paper-title">${esc(p.title)}</div><div class="paper-meta">${isRead(p) ? '已读' : '未读'} · ${p.translation ? '有译文' : '无译文'} · ${size(p.file.size)}</div></button>`;
+      const tags = paperTags(p);
+      row.className = 'paper-row' + (state.active && state.active.id === p.id ? ' active' : '') + (isRead(p) ? ' read' : '') + (isStarred(p) ? ' starred' : '');
+      row.innerHTML = `<label class="paper-check"><input type="checkbox" ${state.selected.has(p.id) ? 'checked' : ''} aria-label="选择文献" /></label><button class="paper-open" title="${esc(displayTitle(p))}"><div class="paper-card-head"><div class="paper-title">${esc(displayTitle(p))}</div><span class="paper-star">${isStarred(p) ? '★' : '☆'}</span></div><div class="paper-meta">${isRead(p) ? '已读' : '未读'} · ${paperTranslation(p) ? '有译文' : '无译文'} · ${size(p.file.size)}${tags.length ? ' · ' + esc(tags.slice(0,2).join('/')) : ''}</div></button>`;
       row.querySelector('input').onchange = e => { e.target.checked ? state.selected.add(p.id) : state.selected.delete(p.id); updateLibraryTools(rows); };
       row.querySelector('.paper-open').onclick = () => openPaper(p);
+      row.querySelector('.paper-star').onclick = e => { e.stopPropagation(); toggleStar(p); };
       els.list.appendChild(row);
     });
   }
@@ -277,6 +324,51 @@
     els.selectAll.disabled = !rows.length;
     els.deleteSelected.disabled = !selectedVisible;
     els.selectAll.textContent = rows.length && selectedVisible === rows.length ? '取消全选' : '全选';
+  }
+
+  function toggleStar(p){
+    updateMeta(p, { starred: !isStarred(p) });
+    renderList();
+    renderDetail();
+    checkBackupReminder();
+  }
+
+  function renderDetail(){
+    if (!state.active) {
+      els.detail.classList.add('hidden');
+      return;
+    }
+    const p = state.active, meta = loadMeta(p), translation = paperTranslation(p);
+    els.detail.classList.remove('hidden');
+    els.detailTitle.textContent = displayTitle(p);
+    const progress = meta.progress?.page ? `上次阅读到第 ${meta.progress.page} 页` : '暂无阅读进度';
+    els.detailMeta.textContent = `${p.file.name} · ${translation ? '有译文' : '无译文'} · ${isRead(p) ? '已读' : '未读'} · 批注 ${noteCount(p)} · ${progress} · 最后阅读 ${fmtTime(meta.lastOpenedAt)}`;
+    els.starBtn.textContent = meta.starred ? '★' : '☆';
+    els.starBtn.classList.toggle('active', !!meta.starred);
+    els.starBtn.disabled = els.renameBtn.disabled = els.bindTranslation.disabled = els.addTag.disabled = false;
+    els.clearTranslation.disabled = !meta.manualTranslation;
+    els.tagList.innerHTML = (meta.tags || []).map(t => `<span class="tag-chip">${esc(t)}<button data-tag="${esc(t)}">×</button></span>`).join('') || '<span class="paper-meta">暂无标签</span>';
+    els.tagList.querySelectorAll('[data-tag]').forEach(btn => btn.onclick = () => removeTag(btn.dataset.tag));
+    els.tagPreset.innerHTML = '<option value="">选择标签</option>' + DEFAULT_TAGS.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+  }
+
+  function addTag(){
+    if (!state.active) return;
+    const value = (els.tagInput.value.trim() || els.tagPreset.value).trim();
+    if (!value) return;
+    const meta = loadMeta(state.active);
+    const tags = [...new Set([...(meta.tags || []), value])];
+    updateMeta(state.active, { tags });
+    els.tagInput.value = '';
+    els.tagPreset.value = '';
+    renderDetail(); renderList(); checkBackupReminder();
+  }
+
+  function removeTag(tag){
+    if (!state.active) return;
+    const meta = loadMeta(state.active);
+    updateMeta(state.active, { tags: (meta.tags || []).filter(t => t !== tag) });
+    renderDetail(); renderList(); checkBackupReminder();
   }
 
   function bestTranslationFor(source, translations){
@@ -297,6 +389,16 @@
     return candidates[0]?.item || null;
   }
 
+  function resolveManualTranslation(p){
+    const manual = loadMeta(p).manualTranslation;
+    if (!manual) return null;
+    return state.docs?.find(d => d.path === manual.path || id(d.file) === manual.id) || null;
+  }
+
+  function paperTranslation(p){
+    return resolveManualTranslation(p) || p.autoTranslation || p.translation || null;
+  }
+
   function dedupeFiles(files){
     const seen = new Set();
     return files.filter(f => {
@@ -314,14 +416,16 @@
     for (const f of state.files) {
       const path = pathOf(f);
       const e = ext(path);
-      if (EXT.includes(e)) docs.push({ file: f, path, ext: e, stem: stem(path), translationLike: looksTranslation(path) });
+      if (EXT.includes(e)) docs.push({ id: id(f), file: f, path, ext: e, stem: stem(path), translationLike: looksTranslation(path) });
     }
+    state.docs = docs;
     const translations = docs.filter(d => d.translationLike || d.ext !== '.pdf');
     state.papers = docs
       .filter(d => d.ext === '.pdf' && !d.translationLike)
       .sort((a, b) => a.path.localeCompare(b.path, 'zh-Hans-CN'))
       .map(d => ({
         id: id(d.file), title: d.file.name.replace(/\.pdf$/i, ''), path: d.path, file: d.file,
+        autoTranslation: bestTranslationFor(d, translations),
         translation: bestTranslationFor(d, translations)
       }));
     state.active = null;
@@ -473,9 +577,52 @@
     els.read.disabled = els.save.disabled = els.add.disabled = els.drawBtn.disabled = true;
     state.notes = { items: [] };
     renderNotes();
+    renderDetail();
   }
 
   function updateRead(){ els.read.textContent = state.active && isRead(state.active) ? '取消已读' : '标为已读'; }
+
+  function estimatePage(box){
+    const pages = [...box.querySelectorAll('.pdf-page-wrap')];
+    if (!pages.length) return 0;
+    const boxTop = box.getBoundingClientRect().top;
+    let best = 1, bestDelta = Infinity;
+    pages.forEach(page => {
+      const delta = Math.abs(page.getBoundingClientRect().top - boxTop - 12);
+      if (delta < bestDelta) { bestDelta = delta; best = Number(page.dataset.page) || 1; }
+    });
+    return best;
+  }
+
+  function saveProgress(){
+    if (!state.active || !els.orig.classList.contains('viewer')) return;
+    const max = Math.max(1, els.orig.scrollHeight - els.orig.clientHeight);
+    const meta = loadMeta(state.active);
+    const progress = {
+      ...(meta.progress || {}),
+      scrollTop: els.orig.scrollTop,
+      ratio: els.orig.scrollTop / max,
+      page: estimatePage(els.orig) || meta.progress?.page || 1,
+      updatedAt: new Date().toISOString()
+    };
+    saveMeta(state.active, { ...meta, progress });
+    renderDetail();
+  }
+
+  function queueProgressSave(){
+    clearTimeout(state.progressTimer);
+    state.progressTimer = setTimeout(saveProgress, 250);
+  }
+
+  function restoreProgress(){
+    if (!state.active) return;
+    const progress = loadMeta(state.active).progress;
+    if (!progress) return;
+    requestAnimationFrame(() => {
+      const max = Math.max(0, els.orig.scrollHeight - els.orig.clientHeight);
+      els.orig.scrollTop = Number.isFinite(progress.scrollTop) ? Math.min(progress.scrollTop, max) : Math.round(max * (progress.ratio || 0));
+    });
+  }
 
   function addDrawCanvas(wrap, pageNum){
     const canvas = document.createElement('canvas');
@@ -561,6 +708,10 @@
     if (!window.pdfjsLib) { box.textContent = 'PDF.js 未加载。'; return; }
     try {
       const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+      if (box === els.orig && state.active) {
+        const meta = loadMeta(state.active);
+        saveMeta(state.active, { ...meta, progress: { ...(meta.progress || {}), totalPages: pdf.numPages } });
+      }
       if (token !== state.pdfToken) return;
       box.innerHTML = '';
       for (let i = 1; i <= pdf.numPages; i++) {
@@ -574,6 +725,7 @@
         await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
         addDrawCanvas(wrap, i);
       }
+      if (box === els.orig) restoreProgress();
     } catch (err) {
       box.className = 'viewer empty'; box.textContent = '无法显示这个 PDF：' + err.message;
     }
@@ -590,11 +742,14 @@
 
   async function openPaper(p){
     state.active = p; state.notes = loadNotes(p);
-    els.title.textContent = p.title; els.meta.textContent = p.path + ' · ' + size(p.file.size);
-    els.oname.textContent = p.file.name; els.tname.textContent = p.translation ? name(p.translation.path) : '未找到对应译文';
+    updateMeta(p, { lastOpenedAt: new Date().toISOString() });
+    const translation = paperTranslation(p);
+    els.title.textContent = displayTitle(p); els.meta.textContent = p.path + ' · ' + size(p.file.size);
+    els.oname.textContent = p.file.name; els.tname.textContent = translation ? name(translation.path) : '未找到对应译文';
     els.read.disabled = els.save.disabled = els.add.disabled = els.drawBtn.disabled = false;
-    updateRead(); renderList(); renderNotes();
-    await Promise.all([renderDoc(p.file, els.orig, '无法显示原文。'), renderDoc(p.translation, els.trans, '未找到对应译文文件。')]);
+    updateRead(); renderList(); renderNotes(); renderDetail();
+    await Promise.all([renderDoc(p.file, els.orig, '无法显示原文。'), renderDoc(translation, els.trans, '未找到对应译文文件。')]);
+    checkBackupReminder();
   }
 
   function setLibraryHidden(hidden, persist = true){
@@ -609,6 +764,15 @@
     document.body.classList.toggle('notes-hidden', hidden);
     els.showNotes.classList.toggle('hidden', !hidden);
     if (persist) localStorage.setItem(profileKey('notesHidden'), hidden ? '1' : '0');
+    requestAnimationFrame(() => document.querySelectorAll('.draw-layer').forEach(c => { resizeDrawCanvas(c); restoreDrawCanvas(c); }));
+  }
+
+  function setViewMode(mode, persist = true){
+    state.viewMode = mode || 'split';
+    document.body.classList.remove('mode-split','mode-original','mode-translation','mode-stacked');
+    document.body.classList.add('mode-' + state.viewMode);
+    if (els.viewMode) els.viewMode.value = state.viewMode;
+    if (persist) localStorage.setItem(profileKey('viewMode'), state.viewMode);
     requestAnimationFrame(() => document.querySelectorAll('.draw-layer').forEach(c => { resizeDrawCanvas(c); restoreDrawCanvas(c); }));
   }
 
@@ -633,6 +797,55 @@
     if (Number.isInteger(state.editing)) { const old = state.notes.items[state.editing] || {}; state.notes.items[state.editing] = { ...old, ...n, createdAt: old.createdAt || n.updatedAt }; state.editing = null; }
     else state.notes.items.unshift({ ...n, createdAt: n.updatedAt });
     els.loc.value = ''; els.txt.value = ''; saveNotes(); renderNotes();
+    renderDetail(); renderList(); checkBackupReminder();
+  }
+
+  function showAllNotes(){
+    const rows = [];
+    state.papers.forEach(p => (loadNotes(p).items || []).forEach((n, i) => rows.push({ p, n, i })));
+    els.allNotesList.innerHTML = rows.length ? rows.map(({p,n,i}) => `<button class="all-note-row" data-paper="${esc(p.id)}" data-index="${i}"><strong>${esc(displayTitle(p))}</strong><span>${esc(n.location || '未标注位置')} · ${esc(n.updatedAt || n.createdAt || '')}</span><p>${esc(n.body)}</p></button>`).join('') : '<div class="paper-meta empty-list">暂无批注。</div>';
+    els.allNotesList.querySelectorAll('[data-paper]').forEach(btn => btn.onclick = async () => {
+      const p = state.papers.find(x => x.id === btn.dataset.paper);
+      if (!p) return;
+      const note = (loadNotes(p).items || [])[Number(btn.dataset.index)];
+      els.allNotesDialog.close();
+      await openPaper(p);
+      if (note) { els.loc.value = note.location || ''; els.txt.value = note.body || ''; state.editing = Number(btn.dataset.index); setNotesHidden(false); els.txt.focus(); }
+    });
+    els.allNotesDialog.showModal();
+  }
+
+  function renameActive(){
+    if (!state.active) return;
+    const next = prompt('显示名', displayTitle(state.active));
+    if (next === null) return;
+    updateMeta(state.active, { displayName: next.trim() });
+    els.title.textContent = displayTitle(state.active);
+    renderDetail(); renderList(); checkBackupReminder();
+  }
+
+  function openTranslationDialog(){
+    if (!state.active) return;
+    const choices = (state.docs || []).filter(d => d.path !== state.active.path && EXT.includes(d.ext));
+    els.translationSelect.innerHTML = choices.length ? choices.map(d => `<option value="${esc(d.id)}">${esc(d.path)}</option>`).join('') : '<option value="">没有可选译文文件</option>';
+    els.translationDialog.showModal();
+  }
+
+  async function bindTranslation(){
+    if (!state.active || !els.translationSelect.value) return;
+    const doc = (state.docs || []).find(d => d.id === els.translationSelect.value);
+    if (!doc) return;
+    updateMeta(state.active, { manualTranslation: { id: doc.id, path: doc.path } });
+    els.translationDialog.close();
+    toast('已绑定译文');
+    await openPaper(state.active);
+  }
+
+  async function clearTranslationBinding(){
+    if (!state.active) return;
+    updateMeta(state.active, { manualTranslation: null });
+    toast('已取消手动绑定');
+    await openPaper(state.active);
   }
 
   function exportData(){
@@ -643,6 +856,8 @@
     }
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'paper-reader-data.json'; a.click(); URL.revokeObjectURL(a.href);
+    localStorage.setItem(profileKey('lastExportAt'), new Date().toISOString());
+    checkBackupReminder();
   }
 
   async function importData(file){
@@ -652,6 +867,24 @@
     toast('数据已导入');
     if (state.active) { state.notes = loadNotes(state.active); renderNotes(); document.querySelectorAll('.draw-layer').forEach(restoreDrawCanvas); }
     renderList(); updateRead();
+    renderDetail(); checkBackupReminder();
+  }
+
+  function hasUserData(){
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i) || '';
+      if (k.startsWith(storagePrefix()) && /\.(notes|draw|meta|read)\./.test(k)) return true;
+    }
+    return false;
+  }
+
+  function checkBackupReminder(){
+    if (!els.backupBanner) return;
+    const later = localStorage.getItem(profileKey('backupLaterAt'));
+    if (later && Date.now() - Date.parse(later) < 24 * 60 * 60 * 1000) { els.backupBanner.classList.add('hidden'); return; }
+    const last = localStorage.getItem(profileKey('lastExportAt'));
+    const stale = !last || Date.now() - Date.parse(last) > 7 * 24 * 60 * 60 * 1000;
+    els.backupBanner.classList.toggle('hidden', !(hasUserData() && stale));
   }
 
   els.pick.onclick = chooseFolder;
@@ -677,14 +910,28 @@
     state.pendingFolderMode = null;
   };
   els.search.oninput = renderList;
+  els.tagFilter.onchange = e => { state.tagFilter = e.target.value; renderList(); };
   els.filters.onclick = e => { const b = e.target.closest('[data-filter]'); if (!b) return; state.filter = b.dataset.filter; els.filters.querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b)); renderList(); };
-  els.read.onclick = () => { if (!state.active) return; setRead(state.active, !isRead(state.active)); updateRead(); renderList(); };
+  els.read.onclick = () => { if (!state.active) return; setRead(state.active, !isRead(state.active)); updateRead(); renderList(); renderDetail(); checkBackupReminder(); };
   els.save.onclick = saveNotes; els.add.onclick = addNote;
+  els.allNotesBtn.onclick = showAllNotes;
+  els.viewMode.onchange = e => setViewMode(e.target.value);
+  els.starBtn.onclick = () => { if (state.active) toggleStar(state.active); };
+  els.renameBtn.onclick = renameActive;
+  els.addTag.onclick = addTag;
+  els.tagPreset.onchange = () => { if (els.tagPreset.value) els.tagInput.value = els.tagPreset.value; };
+  els.bindTranslation.onclick = openTranslationDialog;
+  els.clearTranslation.onclick = clearTranslationBinding;
+  els.translationCancel.onclick = () => els.translationDialog.close();
+  els.translationForm.addEventListener('submit', e => { e.preventDefault(); bindTranslation(); });
+  els.backupExport.onclick = exportData;
+  els.backupLater.onclick = () => { localStorage.setItem(profileKey('backupLaterAt'), new Date().toISOString()); checkBackupReminder(); };
   els.drawBtn.onclick = () => { state.drawMode = !state.drawMode; els.drawBtn.classList.toggle('active', state.drawMode); els.drawToolbar.classList.toggle('hidden', !state.drawMode); };
   els.drawToolbar.addEventListener('click', e => { const b = e.target.closest('[data-tool]'); if (!b) return; state.drawTool = b.dataset.tool; els.drawToolbar.querySelectorAll('[data-tool]').forEach(x => x.classList.toggle('active', x === b)); });
   els.drawColor.oninput = e => state.drawColor = e.target.value;
   els.drawSize.oninput = e => state.drawSize = +e.target.value;
   els.clearDraw.onclick = () => { if (!state.active || !confirm('清除当前文献的所有画笔标注？')) return; localStorage.removeItem(key('draw', state.active.id)); document.querySelectorAll('.draw-layer').forEach(c => c.getContext('2d').clearRect(0, 0, c.width, c.height)); toast('画笔标注已清除'); };
+  els.orig.addEventListener('scroll', queueProgressSave);
   els.exportBtn.onclick = exportData; els.importBtn.onclick = () => els.importInput.click();
   els.importInput.onchange = e => { const f = e.target.files?.[0]; if (f) importData(f).catch(err => alert(err.message)); e.target.value = ''; };
   els.aiBtn.onclick = () => els.aiDialog.showModal();
@@ -739,7 +986,9 @@
     applyUser();
     loadLayout();
     clear('选择一个本机文件夹开始');
+    updateTagFilterOptions();
     renderList();
+    checkBackupReminder();
     await restoreSavedFolder();
   }
   init();

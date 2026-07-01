@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Paper Reader</title>
-  <link rel="stylesheet" href="local_styles.css?v=20260701-cards2" />
+  <link rel="stylesheet" href="local_styles.css?v=20260701-features1" />
 </head>
 <body>
   <aside class="library">
@@ -23,6 +23,7 @@
     <input id="addFilesInput" type="file" accept=".pdf,.md,.txt,.html,.htm,application/pdf,text/plain,text/markdown,text/html" multiple hidden />
     <input id="importInput" type="file" accept="application/json,.json" hidden />
     <input id="searchInput" class="search" placeholder="搜索文件名" />
+    <div id="libraryStats" class="library-stats"></div>
     <div class="library-tools">
       <button id="addFolderBtn" disabled>添加文件夹</button>
       <button id="addFilesBtn" disabled>添加文献</button>
@@ -35,7 +36,11 @@
       <button data-filter="read">已读</button>
       <button data-filter="translated">有译文</button>
       <button data-filter="missing">无译文</button>
+      <button data-filter="starred">星标</button>
     </div>
+    <select id="tagFilter" class="tag-filter">
+      <option value="">全部标签</option>
+    </select>
     <div id="paperList" class="paper-list"></div>
   </aside>
 
@@ -52,6 +57,13 @@
         <button id="toggleReadBtn" disabled>标为已读</button>
         <button id="drawBtn" disabled>标注</button>
         <button id="saveNotesBtn" disabled>保存批注</button>
+        <button id="allNotesBtn">全部批注</button>
+        <select id="viewModeSelect" class="mode-select" title="阅读模式">
+          <option value="split">双栏</option>
+          <option value="original">仅原文</option>
+          <option value="translation">仅译文</option>
+          <option value="stacked">上下排列</option>
+        </select>
         <button id="exportBtn">导出数据</button>
         <button id="importBtn">导入数据</button>
         <button id="showLibraryBtn" class="restore-action hidden">显示文献栏</button>
@@ -69,6 +81,37 @@
       <label>粗细 <input id="drawSize" type="range" min="2" max="26" value="4" /></label>
       <button id="clearDrawBtn">清除本文标注</button>
     </div>
+
+    <section id="detailPanel" class="detail-panel hidden">
+      <div class="detail-main">
+        <div>
+          <div class="detail-title-row">
+            <h3 id="detailTitle">未选择文献</h3>
+            <button id="starBtn" class="star-btn" disabled title="星标">☆</button>
+          </div>
+          <p id="detailMeta">选择文献后显示详情。</p>
+        </div>
+        <div class="detail-actions">
+          <button id="renameBtn" disabled>修改显示名</button>
+          <button id="bindTranslationBtn" disabled>绑定译文</button>
+          <button id="clearTranslationBtn" disabled>取消绑定</button>
+        </div>
+      </div>
+      <div class="detail-tags">
+        <div id="tagList" class="tag-list"></div>
+        <select id="tagPreset">
+          <option value="">选择标签</option>
+        </select>
+        <input id="tagInput" placeholder="新标签" />
+        <button id="addTagBtn" disabled>添加标签</button>
+      </div>
+    </section>
+
+    <section id="backupBanner" class="backup-banner hidden">
+      <span>你的阅读数据只保存在当前浏览器，建议导出备份。</span>
+      <button id="backupExportBtn">导出数据</button>
+      <button id="backupLaterBtn">稍后提醒</button>
+    </section>
 
     <section class="viewer-grid" id="viewerGrid">
       <section class="viewer-panel">
@@ -114,7 +157,29 @@
     </form>
   </dialog>
 
+  <dialog id="allNotesDialog" class="wide-dialog">
+    <form method="dialog">
+      <div class="dialog-head">
+        <h3>全部批注</h3>
+        <button>关闭</button>
+      </div>
+      <div id="allNotesList" class="all-notes-list"></div>
+    </form>
+  </dialog>
+
+  <dialog id="translationDialog" class="wide-dialog">
+    <form id="translationForm" method="dialog">
+      <h3>绑定译文</h3>
+      <p>从当前已扫描文件中选择一个译文文件。</p>
+      <select id="translationSelect" class="full-select"></select>
+      <div class="dialog-actions">
+        <button type="button" id="translationCancelBtn">取消</button>
+        <button type="submit">绑定</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="pdf.min.js"></script>
-  <script src="local_app.js?v=20260701-cards2"></script>
+  <script src="local_app.js?v=20260701-features1"></script>
 </body>
 </html>
