@@ -4,6 +4,8 @@
   const EXT = ['.pdf', '.md', '.txt', '.html', '.htm'];
   const state = {
     papers: [],
+    files: [],
+    directoryHandle: null,
     active: null,
     notes: { items: [] },
     filter: 'all',
@@ -13,10 +15,12 @@
     drawColor: '#e74c3c',
     drawSize: 4,
     drawing: null,
+    libraryHidden: false,
   };
   const $ = (s) => document.querySelector(s);
   const els = {
-    pick: $('#pickFolderBtn'), input: $('#folderInput'), count: $('#paperCount'), search: $('#searchInput'),
+    pick: $('#pickFolderBtn'), refresh: $('#refreshFolderBtn'), hideLibrary: $('#hideLibraryBtn'), showLibrary: $('#showLibraryBtn'),
+    input: $('#folderInput'), count: $('#paperCount'), search: $('#searchInput'),
     filters: $('#filterBar'), list: $('#paperList'), title: $('#activeTitle'), meta: $('#activeMeta'),
     oname: $('#originalName'), tname: $('#translationName'), orig: $('#originalViewer'), trans: $('#translationViewer'),
     read: $('#toggleReadBtn'), save: $('#saveNotesBtn'), add: $('#addNoteBtn'), loc: $('#noteLocation'), txt: $('#noteText'),
@@ -29,7 +33,23 @@
 
   function ext(n){ const i = n.lastIndexOf('.'); return i >= 0 ? n.slice(i).toLowerCase() : ''; }
   function name(p){ return (p.split(/[\\/]/).pop() || p); }
-  function stem(p){ let n = name(p), e = ext(n); if (e) n = n.slice(0, -e.length); return n.replace(MARK, ' ').replace(/[_\-\s]+/g, ' ').trim().toLowerCase(); }
+  function stem(p){
+    let n = name(p), e = ext(n);
+    if (e) n = n.slice(0, -e.length);
+    return n
+      .replace(/\((?:translation|translated|中文|译文|翻译|翻译版|中译|zh|cn)\)/ig, ' ')
+      .replace(/\b(?:academic[_\-\s]*)?translation\b/ig, ' ')
+      .replace(/(?:_|\-|\s)*(?:translation|translated|chinese|zh|cn|中文|中文版|译文|翻译|翻译版|中译)(?:版)?/ig, ' ')
+      .replace(MARK, ' ')
+      .replace(/[_\-\s]+/g, ' ')
+      .trim()
+      .toLowerCase();
+  }
+  function looksTranslation(path){
+    const s = name(path).toLowerCase();
+    return /(?:^|[_\-\s])(zh|cn|chinese|translation|translated)(?:$|[_\-\s])/.test(s)
+      || /(中文|中文版|译文|翻译|翻译版|中译|academic[_\-\s]*translation)/i.test(s);
+  }
   function id(f){ return [(f.webkitRelativePath || f.name), f.size, f.lastModified].join('|'); }
   function key(kind, paperId){ return PREFIX + kind + '.' + btoa(unescape(encodeURIComponent(paperId))).replace(/=+$/, ''); }
   function get(k, d){ try { const raw = localStorage.getItem(k); return raw ? JSON.parse(raw) : d; } catch { return d; } }
@@ -42,6 +62,14 @@
   function loadDraw(p){ return get(key('draw', p.id), { pages: {} }); }
   function saveDraw(p, data){ set(key('draw', p.id), data); }
   function toast(msg){ els.toast.textContent = msg; els.toast.classList.remove('hidden'); clearTimeout(toast.t); toast.t = setTimeout(() => els.toast.classList.add('hidden'), 1800); }
+  function setCss(name, value){ document.documentElement.style.setProperty(name, value); localStorage.setItem(PREFIX + 'layout.' + name, value); }
+  function loadLayout(){
+    ['--library-width','--original-width','--translation-width','--notes-width'].forEach(name => {
+      const value = localStorage.getItem(PREFIX + 'layout.' + name);
+      if (value) document.documentElement.style.setProperty(name, value);
+    });
+    setLibraryHidden(localStorage.getItem(PREFIX + 'libraryHidden') === '1', false);
+  }
 
   function saveNotes(){
     if (!state.active) return;
@@ -87,25 +115,84 @@
     });
   }
 
+  function bestTranslationFor(source, translations){
+    const sameStem = translations.filter(t => t.path !== source.path && t.stem === source.stem);
+    if (sameStem.length) return sameStem.sort((a, b) => (a.ext === '.pdf' ? 0 : 1) - (b.ext === '.pdf' ? 0 : 1))[0];
+    const sourceStem = source.stem.replace(/\s+/g, '');
+    const candidates = translations
+      .filter(t => t.path !== source.path)
+      .map(t => ({ item: t, compact: t.stem.replace(/\s+/g, '') }))
+      .filter(t => t.compact === sourceStem || t.compact.includes(sourceStem) || sourceStem.includes(t.compact))
+      .sort((a, b) => Math.abs(a.compact.length - sourceStem.length) - Math.abs(b.compact.length - sourceStem.length));
+    return candidates[0]?.item || null;
+  }
+
   function scan(files){
+    state.files = files;
     const docs = [];
     for (const f of files) {
       const path = f.webkitRelativePath || f.name;
       const e = ext(path);
-      if (EXT.includes(e)) docs.push({ file: f, path, ext: e, stem: stem(path), translationLike: MARK.test(path) && e !== '.pdf' });
+      if (EXT.includes(e)) docs.push({ file: f, path, ext: e, stem: stem(path), translationLike: looksTranslation(path) });
     }
-    const translations = docs.filter(d => d.ext !== '.pdf' || d.translationLike);
+    const translations = docs.filter(d => d.translationLike || d.ext !== '.pdf');
     state.papers = docs
       .filter(d => d.ext === '.pdf' && !d.translationLike)
       .sort((a, b) => a.path.localeCompare(b.path, 'zh-Hans-CN'))
       .map(d => ({
         id: id(d.file), title: d.file.name.replace(/\.pdf$/i, ''), path: d.path, file: d.file,
-        translation: translations.find(t => t.path !== d.path && t.stem === d.stem) || null
+        translation: bestTranslationFor(d, translations)
       }));
     state.active = null;
     clear('已读取文件夹，请从左侧选择文献。');
     renderList();
     toast('已读取本机文件夹');
+    els.refresh.disabled = false;
+  }
+
+  async function filesFromDirectoryHandle(handle){
+    const files = [];
+    async function walk(dir, prefix){
+      for await (const [entryName, entry] of dir.entries()) {
+        const rel = prefix ? `${prefix}/${entryName}` : entryName;
+        if (entry.kind === 'file') {
+          const file = await entry.getFile();
+          Object.defineProperty(file, 'webkitRelativePath', { value: rel, configurable: true });
+          files.push(file);
+        } else if (entry.kind === 'directory') {
+          await walk(entry, rel);
+        }
+      }
+    }
+    await walk(handle, '');
+    return files;
+  }
+
+  async function chooseFolder(){
+    if ('showDirectoryPicker' in window) {
+      try {
+        state.directoryHandle = await window.showDirectoryPicker({ mode: 'read' });
+        scan(await filesFromDirectoryHandle(state.directoryHandle));
+        return;
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+      }
+    }
+    els.input.click();
+  }
+
+  async function refreshFolder(){
+    if (state.directoryHandle) {
+      try {
+        scan(await filesFromDirectoryHandle(state.directoryHandle));
+        toast('已刷新文献列表');
+        return;
+      } catch (err) {
+        toast('需要重新授权文件夹');
+      }
+    }
+    els.input.value = '';
+    els.input.click();
   }
 
   function clear(msg){
@@ -242,6 +329,13 @@
     await Promise.all([renderDoc(p.file, els.orig, '无法显示原文。'), renderDoc(p.translation, els.trans, '未找到对应译文文件。')]);
   }
 
+  function setLibraryHidden(hidden, persist = true){
+    state.libraryHidden = hidden;
+    document.body.classList.toggle('library-hidden', hidden);
+    els.showLibrary.classList.toggle('hidden', !hidden);
+    if (persist) localStorage.setItem(PREFIX + 'libraryHidden', hidden ? '1' : '0');
+  }
+
   function renderNotes(){
     els.notes.innerHTML = '';
     const items = state.notes.items || [];
@@ -284,7 +378,10 @@
     renderList(); updateRead();
   }
 
-  els.pick.onclick = () => els.input.click();
+  els.pick.onclick = chooseFolder;
+  els.refresh.onclick = refreshFolder;
+  els.hideLibrary.onclick = () => setLibraryHidden(true);
+  els.showLibrary.onclick = () => setLibraryHidden(false);
   els.input.onchange = e => scan(Array.from(e.target.files || []));
   els.search.oninput = renderList;
   els.filters.onclick = e => { const b = e.target.closest('[data-filter]'); if (!b) return; state.filter = b.dataset.filter; els.filters.querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b)); renderList(); };
@@ -298,6 +395,42 @@
   els.exportBtn.onclick = exportData; els.importBtn.onclick = () => els.importInput.click();
   els.importInput.onchange = e => { const f = e.target.files?.[0]; if (f) importData(f).catch(err => alert(err.message)); e.target.value = ''; };
   els.aiBtn.onclick = () => els.aiDialog.showModal();
+  document.querySelectorAll('[data-splitter]').forEach(splitter => {
+    splitter.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      const kind = splitter.dataset.splitter;
+      const startX = e.clientX;
+      const styles = getComputedStyle(document.documentElement);
+      const start = {
+        library: parseFloat(styles.getPropertyValue('--library-width')) || 320,
+        original: parseFloat(styles.getPropertyValue('--original-width')) || 1,
+        translation: parseFloat(styles.getPropertyValue('--translation-width')) || .9,
+        notes: parseFloat(styles.getPropertyValue('--notes-width')) || 300,
+      };
+      const move = ev => {
+        const dx = ev.clientX - startX;
+        if (kind === 'library') {
+          setCss('--library-width', Math.max(220, Math.min(560, start.library + dx)) + 'px');
+        } else if (kind === 'original') {
+          const total = start.original + start.translation;
+          const delta = dx / Math.max(320, window.innerWidth);
+          const nextOriginal = Math.max(.45, Math.min(total - .45, start.original + delta * 3));
+          setCss('--original-width', nextOriginal + 'fr');
+          setCss('--translation-width', (total - nextOriginal) + 'fr');
+          document.querySelectorAll('.draw-layer').forEach(c => { resizeDrawCanvas(c); restoreDrawCanvas(c); });
+        } else if (kind === 'translation') {
+          setCss('--notes-width', Math.max(220, Math.min(560, start.notes - dx)) + 'px');
+        }
+      };
+      const up = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    });
+  });
   window.addEventListener('resize', () => document.querySelectorAll('.draw-layer').forEach(c => { resizeDrawCanvas(c); restoreDrawCanvas(c); }));
+  loadLayout();
   renderList();
 })();

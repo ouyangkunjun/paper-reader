@@ -13,7 +13,11 @@
         <h1>Paper Reader</h1>
         <p id="paperCount">请选择文件夹</p>
       </div>
-      <button id="pickFolderBtn">选择文件夹</button>
+      <div class="library-actions">
+        <button id="pickFolderBtn">选择文件夹</button>
+        <button id="refreshFolderBtn" disabled>刷新</button>
+        <button id="hideLibraryBtn" title="隐藏文献栏">收起</button>
+      </div>
     </header>
     <input id="folderInput" type="file" webkitdirectory directory multiple hidden />
     <input id="importInput" type="file" accept="application/json,.json" hidden />
@@ -27,6 +31,9 @@
     </div>
     <div id="paperList" class="paper-list"></div>
   </aside>
+
+  <button id="showLibraryBtn" class="restore-library hidden">文献</button>
+  <div class="splitter library-splitter" data-splitter="library"></div>
 
   <main class="reader">
     <header class="topbar">
@@ -58,10 +65,12 @@
         <div class="viewer-head"><strong>原文</strong><span id="originalName">PDF</span></div>
         <div id="originalViewer" class="viewer empty">请选择 PDF。</div>
       </section>
+      <div class="splitter viewer-splitter" data-splitter="original"></div>
       <section class="viewer-panel">
         <div class="viewer-head"><strong>译文</strong><span id="translationName">自动匹配同名译文</span></div>
         <div id="translationViewer" class="viewer empty">未选择文献。</div>
       </section>
+      <div class="splitter viewer-splitter" data-splitter="translation"></div>
       <aside class="notes">
         <div class="viewer-head"><strong>批注</strong><button id="addNoteBtn" disabled>添加</button></div>
         <input id="noteLocation" placeholder="例如：第 3 页、图 2" />
