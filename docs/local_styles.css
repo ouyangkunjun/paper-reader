@@ -67,14 +67,7 @@ button:disabled { color: #98a2b3; cursor: not-allowed; }
 .library-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .library h1 { margin: 0; font-size: 18px; }
 .library p, .topbar p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
-.restore-library, .restore-notes {
-  position: fixed;
-  top: 92px;
-  z-index: 20;
-  box-shadow: var(--shadow);
-}
-.restore-library { left: 0; border-radius: 0 6px 6px 0; }
-.restore-notes { right: 0; border-radius: 6px 0 0 6px; }
+.restore-action { background: var(--soft); border-color: #c9d8ff; color: var(--accent); }
 .splitter { background: #dfe7f0; z-index: 5; }
 .splitter:hover { background: #b9c8dc; }
 .library-splitter { grid-area: library-splitter; height: 100vh; cursor: col-resize; }
@@ -86,20 +79,44 @@ button:disabled { color: #98a2b3; cursor: not-allowed; }
   border-radius: 6px;
   font: inherit;
 }
+.library-tools {
+  padding: 0 16px 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.library-tools button { padding: 6px 8px; font-size: 13px; }
 .filters { padding: 0 16px 10px; display: flex; gap: 6px; flex-wrap: wrap; }
 .filters button { padding: 5px 8px; font-size: 13px; }
 .filters button.active { background: var(--soft); border-color: var(--accent); color: var(--accent); }
 .paper-list { overflow: auto; padding: 8px; }
 .paper-row {
   width: 100%;
-  text-align: left;
   border: 1px solid transparent;
   border-radius: 8px;
-  padding: 10px;
+  padding: 0;
   margin-bottom: 6px;
   background: transparent;
+  display: grid;
+  grid-template-columns: 30px minmax(0,1fr);
+  align-items: stretch;
 }
 .paper-row.active, .paper-row:hover { background: var(--soft); border-color: #c9d8ff; }
+.paper-check {
+  display: grid;
+  place-items: start center;
+  padding-top: 12px;
+}
+.paper-check input { width: 16px; height: 16px; accent-color: var(--accent); }
+.paper-open {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 10px 10px 10px 0;
+  white-space: normal;
+}
+.paper-open:hover:not(:disabled) { border-color: transparent; background: transparent; color: var(--text); }
 .paper-title { font-weight: 600; overflow-wrap: anywhere; }
 .paper-meta { margin-top: 4px; color: var(--muted); font-size: 12px; }
 .empty-list { padding: 12px; }
@@ -254,5 +271,4 @@ dialog p { margin: 0 0 16px; color: var(--muted); line-height: 1.6; }
   .notes { min-height: 260px; }
   .topbar { min-height: auto; }
   .viewer { padding: 10px; }
-  .restore-library, .restore-notes { top: 74px; }
 }

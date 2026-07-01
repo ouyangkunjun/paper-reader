@@ -20,12 +20,14 @@
     libraryHidden: false,
     notesHidden: false,
     user: null,
+    selected: new Set(),
   };
   const $ = (s) => document.querySelector(s);
   const els = {
     pick: $('#pickFolderBtn'), refresh: $('#refreshFolderBtn'), hideLibrary: $('#hideLibraryBtn'), showLibrary: $('#showLibraryBtn'),
     hideNotes: $('#hideNotesBtn'), showNotes: $('#showNotesBtn'),
-    input: $('#folderInput'), count: $('#paperCount'), search: $('#searchInput'),
+    input: $('#folderInput'), addFilesInput: $('#addFilesInput'), count: $('#paperCount'), search: $('#searchInput'),
+    addFolder: $('#addFolderBtn'), addFiles: $('#addFilesBtn'), selectAll: $('#selectAllBtn'), deleteSelected: $('#deleteSelectedBtn'),
     filters: $('#filterBar'), list: $('#paperList'), title: $('#activeTitle'), meta: $('#activeMeta'),
     oname: $('#originalName'), tname: $('#translationName'), orig: $('#originalViewer'), trans: $('#translationViewer'),
     read: $('#toggleReadBtn'), save: $('#saveNotesBtn'), add: $('#addNoteBtn'), loc: $('#noteLocation'), txt: $('#noteText'),
@@ -57,6 +59,25 @@
     const s = name(path).toLowerCase();
     return /(?:^|[_\-\s])(zh|cn|chinese|translation|translated)(?:$|[_\-\s])/.test(s)
       || /(中文|中文版|译文|翻译|翻译版|中译|academic[_\-\s]*translation)/i.test(s);
+  }
+  function compactStem(value){
+    return stem(value).replace(/[^\p{L}\p{N}\u4e00-\u9fa5]+/gu, '');
+  }
+  function tokensOf(value){
+    return stem(value)
+      .replace(/[^\p{L}\p{N}\u4e00-\u9fa5]+/gu, ' ')
+      .split(/\s+/)
+      .filter(t => t.length > 1 && !/^(the|and|for|with|from|into|onto|this|that|role|new|data|driven)$/i.test(t));
+  }
+  function tokenScore(a, b){
+    const source = new Set(tokensOf(a));
+    const target = new Set(tokensOf(b));
+    if (!source.size || !target.size) return 0;
+    let hit = 0;
+    for (const t of target) {
+      if (source.has(t) || [...source].some(s => s.includes(t) || t.includes(s))) hit++;
+    }
+    return hit / Math.min(source.size, target.size);
   }
   function pathOf(f){ return f.webkitRelativePath || f._relativePath || f.name; }
   function id(f){ return [pathOf(f), f.size, f.lastModified].join('|'); }
@@ -181,9 +202,9 @@
     if (!window.indexedDB) return null;
     try { return await handleStore('readonly', store => store.get(handleKey())); } catch { return null; }
   }
-  async function ensureFolderPermission(handle, ask){
+  async function ensureFolderPermission(handle, ask, mode = 'read'){
     if (!handle?.queryPermission) return true;
-    const opts = { mode: 'read' };
+    const opts = { mode };
     if (await handle.queryPermission(opts) === 'granted') return true;
     if (ask && handle.requestPermission) return await handle.requestPermission(opts) === 'granted';
     return false;
@@ -232,35 +253,65 @@
     els.list.innerHTML = '';
     const rows = state.papers.filter(pass);
     els.count.textContent = state.papers.length ? `${rows.length} / ${state.papers.length} 篇` : '请选择文件夹';
+    updateLibraryTools(rows);
     if (!rows.length) {
       els.list.innerHTML = '<div class="paper-meta empty-list">点击“选择文件夹”读取本机 PDF。</div>';
       return;
     }
     rows.forEach(p => {
-      const b = document.createElement('button');
-      b.className = 'paper-row' + (state.active && state.active.id === p.id ? ' active' : '');
-      b.innerHTML = `<div class="paper-title">${esc(p.title)}</div><div class="paper-meta">${isRead(p) ? '已读' : '未读'} · ${p.translation ? '有译文' : '无译文'} · ${size(p.file.size)}</div>`;
-      b.onclick = () => openPaper(p);
-      els.list.appendChild(b);
+      const row = document.createElement('div');
+      row.className = 'paper-row' + (state.active && state.active.id === p.id ? ' active' : '');
+      row.innerHTML = `<label class="paper-check"><input type="checkbox" ${state.selected.has(p.id) ? 'checked' : ''} aria-label="选择文献" /></label><button class="paper-open"><div class="paper-title">${esc(p.title)}</div><div class="paper-meta">${isRead(p) ? '已读' : '未读'} · ${p.translation ? '有译文' : '无译文'} · ${size(p.file.size)}</div></button>`;
+      row.querySelector('input').onchange = e => { e.target.checked ? state.selected.add(p.id) : state.selected.delete(p.id); updateLibraryTools(rows); };
+      row.querySelector('.paper-open').onclick = () => openPaper(p);
+      els.list.appendChild(row);
     });
+  }
+
+  function updateLibraryTools(rows = state.papers.filter(pass)){
+    const hasLibrary = !!state.files.length || !!state.directoryHandle;
+    const visibleIds = new Set(rows.map(p => p.id));
+    const selectedVisible = [...state.selected].filter(id => visibleIds.has(id)).length;
+    els.addFolder.disabled = false;
+    els.addFiles.disabled = false;
+    els.selectAll.disabled = !rows.length;
+    els.deleteSelected.disabled = !selectedVisible;
+    els.selectAll.textContent = rows.length && selectedVisible === rows.length ? '取消全选' : '全选';
   }
 
   function bestTranslationFor(source, translations){
     const sameStem = translations.filter(t => t.path !== source.path && t.stem === source.stem);
     if (sameStem.length) return sameStem.sort((a, b) => (a.ext === '.pdf' ? 0 : 1) - (b.ext === '.pdf' ? 0 : 1))[0];
-    const sourceStem = source.stem.replace(/\s+/g, '');
+    const sourceStem = compactStem(source.path);
     const candidates = translations
       .filter(t => t.path !== source.path)
-      .map(t => ({ item: t, compact: t.stem.replace(/\s+/g, '') }))
-      .filter(t => t.compact === sourceStem || t.compact.includes(sourceStem) || sourceStem.includes(t.compact))
-      .sort((a, b) => Math.abs(a.compact.length - sourceStem.length) - Math.abs(b.compact.length - sourceStem.length));
+      .map(t => {
+        const compact = compactStem(t.path);
+        const score = compact === sourceStem || compact.includes(sourceStem) || sourceStem.includes(compact)
+          ? 1
+          : tokenScore(source.path, t.path);
+        return { item: t, compact, score };
+      })
+      .filter(t => t.score >= .55 || (t.compact.length >= 8 && (t.compact.includes(sourceStem) || sourceStem.includes(t.compact))))
+      .sort((a, b) => b.score - a.score || Math.abs(a.compact.length - sourceStem.length) - Math.abs(b.compact.length - sourceStem.length));
     return candidates[0]?.item || null;
   }
 
+  function dedupeFiles(files){
+    const seen = new Set();
+    return files.filter(f => {
+      const k = id(f);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }
+
   function scan(files, message = '已读取本机文件夹'){
-    state.files = files;
+    state.files = dedupeFiles(files);
+    state.selected = new Set([...state.selected].filter(pid => state.files.some(f => id(f) === pid)));
     const docs = [];
-    for (const f of files) {
+    for (const f of state.files) {
       const path = pathOf(f);
       const e = ext(path);
       if (EXT.includes(e)) docs.push({ file: f, path, ext: e, stem: stem(path), translationLike: looksTranslation(path) });
@@ -289,6 +340,8 @@
           const file = await entry.getFile();
           try { Object.defineProperty(file, 'webkitRelativePath', { value: rel, configurable: true }); }
           catch { file._relativePath = rel; }
+          file._entryName = entryName;
+          file._parentHandle = dir;
           files.push(file);
         } else if (entry.kind === 'directory') {
           await walk(entry, rel);
@@ -302,7 +355,7 @@
   async function chooseFolder(){
     if ('showDirectoryPicker' in window) {
       try {
-        state.directoryHandle = await window.showDirectoryPicker({ mode: 'read' });
+        state.directoryHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
         await saveDirectoryHandle(state.directoryHandle);
         scan(await filesFromDirectoryHandle(state.directoryHandle));
         return;
@@ -311,6 +364,84 @@
       }
     }
     els.input.click();
+  }
+
+  async function addFolder(){
+    if ('showDirectoryPicker' in window) {
+      try {
+        const handle = await window.showDirectoryPicker({ mode: 'read' });
+        const files = await filesFromDirectoryHandle(handle);
+        scan([...state.files, ...files], '已添加文件夹');
+        return;
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+      }
+    }
+    state.pendingFolderMode = 'merge';
+    els.input.value = '';
+    els.input.click();
+  }
+
+  async function copyFilesToLibrary(files){
+    if (!state.directoryHandle || !await ensureFolderPermission(state.directoryHandle, true, 'readwrite')) return false;
+    for (const file of files) {
+      const target = await state.directoryHandle.getFileHandle(file.name, { create: true });
+      const writable = await target.createWritable();
+      await writable.write(file);
+      await writable.close();
+    }
+    await refreshFolder();
+    return true;
+  }
+
+  async function addFiles(files){
+    if (!files.length) return;
+    try {
+      if (await copyFilesToLibrary(files)) {
+        toast(`已添加 ${files.length} 个文件`);
+        return;
+      }
+    } catch (err) {
+      toast('无法写入文件夹，已临时加入列表');
+    }
+    scan([...state.files, ...files], `已临时加入 ${files.length} 个文件`);
+  }
+
+  function selectedPapers(){
+    return state.papers.filter(p => state.selected.has(p.id));
+  }
+
+  async function deleteSelected(){
+    const papers = selectedPapers();
+    if (!papers.length) return;
+    const files = [];
+    const seen = new Set();
+    papers.forEach(p => [p.file, p.translation?.file].filter(Boolean).forEach(f => {
+      const k = id(f);
+      if (!seen.has(k)) { seen.add(k); files.push(f); }
+    }));
+    if (!confirm(`确定删除 ${papers.length} 篇文献吗？匹配到的译文也会一起处理。`)) return;
+    let removedFromDisk = 0;
+    for (const file of files) {
+      const parent = file._parentHandle;
+      const entryName = file._entryName || file.name;
+      if (!parent?.removeEntry) continue;
+      try {
+        if (await ensureFolderPermission(parent, true, 'readwrite')) {
+          await parent.removeEntry(entryName);
+          removedFromDisk++;
+        }
+      } catch {}
+    }
+    const removeIds = new Set(files.map(id));
+    state.files = state.files.filter(f => !removeIds.has(id(f)));
+    state.selected.clear();
+    if (state.active && papers.some(p => p.id === state.active.id)) {
+      state.active = null;
+      clear('已删除选中文献');
+    }
+    if (state.directoryHandle && removedFromDisk) await refreshFolder();
+    else scan(state.files, removedFromDisk ? '已删除选中文献' : '已从当前列表移除');
   }
 
   async function refreshFolder(){
@@ -529,7 +660,22 @@
   els.showLibrary.onclick = () => setLibraryHidden(false);
   els.hideNotes.onclick = () => setNotesHidden(true);
   els.showNotes.onclick = () => setNotesHidden(false);
-  els.input.onchange = e => scan(Array.from(e.target.files || []));
+  els.addFolder.onclick = addFolder;
+  els.addFiles.onclick = () => els.addFilesInput.click();
+  els.addFilesInput.onchange = e => { const files = Array.from(e.target.files || []); addFiles(files); e.target.value = ''; };
+  els.selectAll.onclick = () => {
+    const rows = state.papers.filter(pass);
+    const allSelected = rows.length && rows.every(p => state.selected.has(p.id));
+    rows.forEach(p => allSelected ? state.selected.delete(p.id) : state.selected.add(p.id));
+    renderList();
+  };
+  els.deleteSelected.onclick = deleteSelected;
+  els.input.onchange = e => {
+    const files = Array.from(e.target.files || []);
+    if (state.pendingFolderMode === 'merge') scan([...state.files, ...files], '已添加文件夹');
+    else scan(files);
+    state.pendingFolderMode = null;
+  };
   els.search.oninput = renderList;
   els.filters.onclick = e => { const b = e.target.closest('[data-filter]'); if (!b) return; state.filter = b.dataset.filter; els.filters.querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b)); renderList(); };
   els.read.onclick = () => { if (!state.active) return; setRead(state.active, !isRead(state.active)); updateRead(); renderList(); };

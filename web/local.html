@@ -20,8 +20,15 @@
       </div>
     </header>
     <input id="folderInput" type="file" webkitdirectory directory multiple hidden />
+    <input id="addFilesInput" type="file" accept=".pdf,.md,.txt,.html,.htm,application/pdf,text/plain,text/markdown,text/html" multiple hidden />
     <input id="importInput" type="file" accept="application/json,.json" hidden />
     <input id="searchInput" class="search" placeholder="搜索文件名" />
+    <div class="library-tools">
+      <button id="addFolderBtn" disabled>添加文件夹</button>
+      <button id="addFilesBtn" disabled>添加文献</button>
+      <button id="selectAllBtn" disabled>全选</button>
+      <button id="deleteSelectedBtn" class="danger" disabled>删除选中</button>
+    </div>
     <div id="filterBar" class="filters">
       <button class="active" data-filter="all">全部</button>
       <button data-filter="unread">未读</button>
@@ -32,7 +39,6 @@
     <div id="paperList" class="paper-list"></div>
   </aside>
 
-  <button id="showLibraryBtn" class="restore-library hidden">文献</button>
   <div class="splitter library-splitter" data-splitter="library"></div>
 
   <main class="reader">
@@ -48,6 +54,8 @@
         <button id="saveNotesBtn" disabled>保存批注</button>
         <button id="exportBtn">导出数据</button>
         <button id="importBtn">导入数据</button>
+        <button id="showLibraryBtn" class="restore-action hidden">显示文献栏</button>
+        <button id="showNotesBtn" class="restore-action hidden">显示批注栏</button>
         <button id="aiBtn">AI</button>
         <button id="loginBtn">登录</button>
         <span id="userInfo" class="user-info hidden"><span id="userName"></span><button id="logoutBtn">退出</button></span>
@@ -82,7 +90,6 @@
     </section>
   </main>
 
-  <button id="showNotesBtn" class="restore-notes hidden">批注</button>
   <div id="toast" class="toast hidden"></div>
 
   <dialog id="aiDialog">
