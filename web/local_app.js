@@ -103,7 +103,7 @@
       if (value) document.documentElement.style.setProperty(name, value);
     });
     setLibraryHidden(localStorage.getItem(profileKey('libraryHidden')) === '1', false);
-    setNotesHidden(localStorage.getItem(profileKey('notesHidden')) === '1', false);
+    setNotesHidden(localStorage.getItem(profileKey('notesHidden')) !== '0', false);
   }
 
   function userIdFromName(value){
