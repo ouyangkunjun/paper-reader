@@ -302,6 +302,37 @@ button:disabled { color: #98a2b3; cursor: not-allowed; }
   font-size: 13px;
 }
 .backup-banner button { padding: 5px 8px; font-size: 12px; }
+body.compact-top .topbar {
+  min-height: 54px;
+  padding: 8px 14px;
+  align-items: center;
+}
+body.compact-top .pill,
+body.compact-top .topbar p,
+body.compact-top .detail-panel,
+body.compact-top .backup-banner {
+  display: none !important;
+}
+body.compact-top .topbar h2 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 44vw;
+}
+body.compact-top .toolbar {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  justify-content: flex-end;
+  max-width: 56vw;
+  padding-bottom: 2px;
+}
+body.compact-top .toolbar button,
+body.compact-top .toolbar select {
+  flex: 0 0 auto;
+}
 .viewer-grid {
   min-height: 0;
   flex: 1;

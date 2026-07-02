@@ -20,6 +20,7 @@
     drawing: null,
     libraryHidden: false,
     notesHidden: false,
+    compactTop: false,
     user: null,
     selected: new Set(),
     tagFilter: '',
@@ -29,6 +30,7 @@
   const $ = (s) => document.querySelector(s);
   const els = {
     pick: $('#pickFolderBtn'), refresh: $('#refreshFolderBtn'), hideLibrary: $('#hideLibraryBtn'), showLibrary: $('#showLibraryBtn'),
+    compactTop: $('#compactTopBtn'),
     hideNotes: $('#hideNotesBtn'), showNotes: $('#showNotesBtn'),
     input: $('#folderInput'), addFilesInput: $('#addFilesInput'), count: $('#paperCount'), search: $('#searchInput'),
     stats: $('#libraryStats'), tagFilter: $('#tagFilter'),
@@ -124,6 +126,7 @@
     setLibraryHidden(localStorage.getItem(profileKey('libraryHidden')) === '1', false);
     setNotesHidden(localStorage.getItem(profileKey('notesHidden')) !== '0', false);
     setViewMode(localStorage.getItem(profileKey('viewMode')) || 'split', false);
+    setCompactTop(localStorage.getItem(profileKey('compactTop')) === '1', false);
   }
 
   function userIdFromName(value){
@@ -776,6 +779,14 @@
     requestAnimationFrame(() => document.querySelectorAll('.draw-layer').forEach(c => { resizeDrawCanvas(c); restoreDrawCanvas(c); }));
   }
 
+  function setCompactTop(compact, persist = true){
+    state.compactTop = compact;
+    document.body.classList.toggle('compact-top', compact);
+    els.compactTop.textContent = compact ? '展开顶部' : '精简顶部';
+    if (persist) localStorage.setItem(profileKey('compactTop'), compact ? '1' : '0');
+    requestAnimationFrame(() => document.querySelectorAll('.draw-layer').forEach(c => { resizeDrawCanvas(c); restoreDrawCanvas(c); }));
+  }
+
   function renderNotes(){
     els.notes.innerHTML = '';
     const items = state.notes.items || [];
@@ -889,6 +900,7 @@
 
   els.pick.onclick = chooseFolder;
   els.refresh.onclick = refreshFolder;
+  els.compactTop.onclick = () => setCompactTop(!state.compactTop);
   els.hideLibrary.onclick = () => setLibraryHidden(true);
   els.showLibrary.onclick = () => setLibraryHidden(false);
   els.hideNotes.onclick = () => setNotesHidden(true);
