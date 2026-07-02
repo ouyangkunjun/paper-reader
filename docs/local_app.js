@@ -19,6 +19,7 @@
     compactTop: false,
     user: null,
     selected: new Set(),
+    selectedFolders: new Set(),
     openFolders: {},
     tagFilter: '',
     viewMode: 'split',
@@ -386,10 +387,12 @@
     els.tagFilter.value = current;
   }
 
-  function folderOfPaper(p){
-    const parts = p.path.split(/[\\/]/).filter(Boolean);
+  function folderOfPath(path){
+    const parts = path.split(/[\\/]/).filter(Boolean);
     return parts.length > 1 ? parts[0] : '根目录';
   }
+
+  function folderOfPaper(p){ return folderOfPath(p.path); }
 
   function folderKey(name){ return 'folder:' + name; }
 
@@ -400,6 +403,21 @@
   function setFolderOpen(name, open){
     state.openFolders[folderKey(name)] = open;
     set(profileKey('openFolders'), state.openFolders);
+  }
+
+  function setFolderSelected(folder, selected, papers){
+    if (selected) {
+      state.selectedFolders.add(folder);
+      papers.forEach(p => state.selected.add(p.id));
+    } else {
+      state.selectedFolders.delete(folder);
+      papers.forEach(p => state.selected.delete(p.id));
+    }
+  }
+
+  function syncFolderSelection(folder, papers){
+    if (papers.length && papers.every(p => state.selected.has(p.id))) state.selectedFolders.add(folder);
+    else state.selectedFolders.delete(folder);
   }
 
   function renderList(){
@@ -423,10 +441,15 @@
       .sort((a, b) => (a[0] === '根目录' ? -1 : b[0] === '根目录' ? 1 : a[0].localeCompare(b[0], 'zh-Hans-CN')))
       .forEach(([folder, papers]) => {
         const open = isFolderOpen(folder);
-        const folderRow = document.createElement('button');
+        const folderRow = document.createElement('div');
+        const selectedCount = papers.filter(p => state.selected.has(p.id)).length;
+        const folderSelected = !!papers.length && selectedCount === papers.length;
         folderRow.className = 'folder-row' + (open ? ' open' : '');
-        folderRow.innerHTML = `<span class="folder-caret">${open ? '▾' : '▸'}</span><span class="folder-name">${esc(folder)}</span><span class="folder-count">${papers.length}</span>`;
-        folderRow.onclick = () => { setFolderOpen(folder, !open); renderList(); };
+        folderRow.innerHTML = `<label class="folder-check"><input type="checkbox" ${folderSelected ? 'checked' : ''} aria-label="选择文件夹" /></label><button class="folder-toggle" title="${esc(folder)}"><span class="folder-caret">${open ? '▾' : '▸'}</span><span class="folder-name">${esc(folder)}</span><span class="folder-count">${papers.length}</span></button>`;
+        const folderCheckbox = folderRow.querySelector('input');
+        folderCheckbox.indeterminate = selectedCount > 0 && selectedCount < papers.length;
+        folderCheckbox.onchange = e => { setFolderSelected(folder, e.target.checked, papers); renderList(); };
+        folderRow.querySelector('.folder-toggle').onclick = () => { setFolderOpen(folder, !open); renderList(); };
         els.list.appendChild(folderRow);
         if (!open) return;
         papers.forEach(p => {
@@ -434,7 +457,7 @@
       const tags = paperTags(p);
       row.className = 'paper-row' + (state.active && state.active.id === p.id ? ' active' : '') + (isRead(p) ? ' read' : '') + (isStarred(p) ? ' starred' : '');
       row.innerHTML = `<label class="paper-check"><input type="checkbox" ${state.selected.has(p.id) ? 'checked' : ''} aria-label="选择文献" /></label><button class="paper-open" title="${esc(shownTitle(p))}"><div class="paper-card-head"><div class="paper-title">${esc(shownTitle(p))}</div><span class="paper-star">${isStarred(p) ? '★' : '☆'}</span></div><div class="paper-meta">${isRead(p) ? '已读' : '未读'} · ${paperTranslation(p) ? '有译文' : '无译文'} · ${size(p.file.size)}${tags.length ? ' · ' + esc(tags.slice(0,2).join('/')) : ''}</div></button>`;
-      row.querySelector('input').onchange = e => { e.target.checked ? state.selected.add(p.id) : state.selected.delete(p.id); updateLibraryTools(rows); };
+      row.querySelector('input').onchange = e => { e.target.checked ? state.selected.add(p.id) : state.selected.delete(p.id); syncFolderSelection(folder, papers); renderList(); };
       row.querySelector('.paper-open').onclick = () => openPaper(p);
       row.querySelector('.paper-star').onclick = e => { e.stopPropagation(); toggleStar(p); };
       els.list.appendChild(row);
@@ -445,11 +468,13 @@
   function updateLibraryTools(rows = state.papers.filter(pass)){
     const hasLibrary = !!state.files.length || !!state.directoryHandle;
     const visibleIds = new Set(rows.map(p => p.id));
+    const visibleFolders = new Set(rows.map(folderOfPaper));
     const selectedVisible = [...state.selected].filter(id => visibleIds.has(id)).length;
+    const selectedFolderVisible = [...state.selectedFolders].filter(folder => visibleFolders.has(folder)).length;
     els.addFolder.disabled = false;
     els.addFiles.disabled = false;
     els.selectAll.disabled = !rows.length;
-    els.deleteSelected.disabled = !selectedVisible;
+    els.deleteSelected.disabled = !selectedVisible && !selectedFolderVisible;
     els.selectAll.textContent = rows.length && selectedVisible === rows.length ? '取消全选' : '全选';
   }
 
@@ -705,6 +730,7 @@
     cleanupHiddenReplacedFiles(deduped, replacedPaths, presentPaths).catch(() => {});
     state.files = deduped.filter(f => !replacedPaths[pathOf(f)] || !presentPaths.has(replacedPaths[pathOf(f)]));
     state.selected = new Set([...state.selected].filter(pid => state.files.some(f => id(f) === pid)));
+    state.selectedFolders = new Set([...state.selectedFolders].filter(folder => state.files.some(f => folderOfPath(pathOf(f)) === folder)));
     const docs = [];
     for (const f of state.files) {
       const path = pathOf(f);
@@ -828,17 +854,35 @@
   }
 
   async function deleteSelected(){
-    const papers = selectedPapers();
-    if (!papers.length) return;
+    const selectedFolderSet = new Set([...state.selectedFolders]);
+    const papers = state.papers.filter(p => state.selected.has(p.id) || selectedFolderSet.has(folderOfPaper(p)));
+    if (!papers.length && !selectedFolderSet.size) return;
     const files = [];
     const seen = new Set();
-    papers.forEach(p => [p.file, p.translation?.file].filter(Boolean).forEach(f => {
+    const collect = f => {
       const k = id(f);
       if (!seen.has(k)) { seen.add(k); files.push(f); }
-    }));
-    if (!confirm(`确定删除 ${papers.length} 篇文献吗？匹配到的译文也会一起处理。`)) return;
+    };
+    papers.forEach(p => [p.file, p.translation?.file].filter(Boolean).forEach(collect));
+    (state.docs || [])
+      .filter(d => selectedFolderSet.has(folderOfPath(d.path)))
+      .forEach(d => collect(d.file));
+    const folderText = selectedFolderSet.size ? `、${selectedFolderSet.size} 个文件夹` : '';
+    if (!confirm(`确定删除 ${papers.length} 篇文献${folderText}吗？匹配到的译文也会一起处理。`)) return;
     let removedFromDisk = 0;
+    const removedFolders = new Set();
+    if (state.directoryHandle && await ensureFolderPermission(state.directoryHandle, true, 'readwrite')) {
+      for (const folder of selectedFolderSet) {
+        if (folder === '根目录') continue;
+        try {
+          await state.directoryHandle.removeEntry(folder, { recursive: true });
+          removedFolders.add(folder);
+          removedFromDisk++;
+        } catch {}
+      }
+    }
     for (const file of files) {
+      if (removedFolders.has(folderOfPath(pathOf(file)))) continue;
       const parent = file._parentHandle;
       const entryName = file._entryName || file.name;
       if (!parent?.removeEntry) continue;
@@ -850,8 +894,9 @@
       } catch {}
     }
     const removeIds = new Set(files.map(id));
-    state.files = state.files.filter(f => !removeIds.has(id(f)));
+    state.files = state.files.filter(f => !removeIds.has(id(f)) && !removedFolders.has(folderOfPath(pathOf(f))));
     state.selected.clear();
+    state.selectedFolders.clear();
     if (state.active && papers.some(p => p.id === state.active.id)) {
       state.active = null;
       clear('已删除选中文献');
@@ -1303,7 +1348,9 @@
   els.selectAll.onclick = () => {
     const rows = state.papers.filter(pass);
     const allSelected = rows.length && rows.every(p => state.selected.has(p.id));
+    const folders = new Set(rows.map(folderOfPaper));
     rows.forEach(p => allSelected ? state.selected.delete(p.id) : state.selected.add(p.id));
+    folders.forEach(folder => allSelected ? state.selectedFolders.delete(folder) : state.selectedFolders.add(folder));
     renderList();
   };
   els.deleteSelected.onclick = deleteSelected;

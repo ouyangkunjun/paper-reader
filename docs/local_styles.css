@@ -141,16 +141,33 @@ body.resizing .native-pdf-frame {
   border-radius: 6px;
   background: #f8fbff;
   display: grid;
-  grid-template-columns: 18px minmax(0,1fr) auto;
+  grid-template-columns: 24px minmax(0,1fr);
   align-items: center;
   gap: 8px;
   padding: 0 10px;
-  text-align: left;
   font-weight: 700;
 }
 .folder-row.open {
   border-color: #b8c8e0;
   background: #eef5ff;
+}
+.folder-check {
+  display: grid;
+  place-items: center;
+}
+.folder-toggle {
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  display: grid;
+  grid-template-columns: 18px minmax(0,1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
 }
 .folder-name {
   overflow: hidden;
