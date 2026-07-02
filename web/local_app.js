@@ -14,6 +14,7 @@
     filter: 'all',
     pdfToken: 0,
     libraryHidden: false,
+    controlsHidden: false,
     notesHidden: false,
     compactTop: false,
     user: null,
@@ -26,9 +27,9 @@
   const $ = (s) => document.querySelector(s);
   const els = {
     pick: $('#pickFolderBtn'), refresh: $('#refreshFolderBtn'), hideLibrary: $('#hideLibraryBtn'), showLibrary: $('#showLibraryBtn'),
-    compactTop: $('#compactTopBtn'),
+    compactTop: $('#compactTopBtn'), toggleControls: $('#toggleControlsBtn'), libraryControls: $('#libraryControls'),
     hideNotes: $('#hideNotesBtn'), showNotes: $('#showNotesBtn'),
-    input: $('#folderInput'), addFilesInput: $('#addFilesInput'), replacePdfInput: $('#replacePdfInput'), count: $('#paperCount'), search: $('#searchInput'),
+    input: $('#folderInput'), addFilesInput: $('#addFilesInput'), translationFileInput: $('#translationFileInput'), replacePdfInput: $('#replacePdfInput'), count: $('#paperCount'), search: $('#searchInput'),
     stats: $('#libraryStats'), tagFilter: $('#tagFilter'),
     addFolder: $('#addFolderBtn'), addFiles: $('#addFilesBtn'), selectAll: $('#selectAllBtn'), deleteSelected: $('#deleteSelectedBtn'),
     filters: $('#filterBar'), list: $('#paperList'), title: $('#activeTitle'), meta: $('#activeMeta'),
@@ -38,10 +39,10 @@
     detail: $('#detailPanel'), detailTitle: $('#detailTitle'), detailMeta: $('#detailMeta'), tagList: $('#tagList'), tagPreset: $('#tagPreset'),
     tagInput: $('#tagInput'), addTag: $('#addTagBtn'), starBtn: $('#starBtn'), renameBtn: $('#renameBtn'), replacePdf: $('#replacePdfBtn'),
     bindTranslation: $('#bindTranslationBtn'), clearTranslation: $('#clearTranslationBtn'), translationDialog: $('#translationDialog'),
-    translationForm: $('#translationForm'), translationSelect: $('#translationSelect'), translationCancel: $('#translationCancelBtn'),
+    translationForm: $('#translationForm'), translationSelect: $('#translationSelect'), translationCancel: $('#translationCancelBtn'), translationAddFile: $('#translationAddFileBtn'),
     backupBanner: $('#backupBanner'), backupExport: $('#backupExportBtn'), backupLater: $('#backupLaterBtn'),
     notes: $('#notesList'), exportBtn: $('#exportBtn'), importBtn: $('#importBtn'),
-    importInput: $('#importInput'), aiBtn: $('#aiBtn'), aiDialog: $('#aiDialog'), toast: $('#toast'),
+    importInput: $('#importInput'), toast: $('#toast'),
     loginBtn: $('#loginBtn'), userInfo: $('#userInfo'), userName: $('#userName'), logoutBtn: $('#logoutBtn'),
     authDialog: $('#authDialog'), authForm: $('#authForm'), authName: $('#authName'), authPassword: $('#authPassword'),
     authError: $('#authError'), authCancel: $('#authCancelBtn')
@@ -112,12 +113,15 @@
   function paperTags(p){ return loadMeta(p).tags || []; }
   function noteCount(p){ return (loadNotes(p).items || []).length; }
   function setCss(name, value){ document.documentElement.style.setProperty(name, value); localStorage.setItem(profileKey('layout.' + name), value); }
+  function applyCss(name, value){ document.documentElement.style.setProperty(name, value); }
+  function persistCss(name){ localStorage.setItem(profileKey('layout.' + name), getComputedStyle(document.documentElement).getPropertyValue(name).trim()); }
   function loadLayout(){
     ['--library-width','--original-width','--translation-width','--notes-width'].forEach(name => {
       const value = localStorage.getItem(profileKey('layout.' + name));
       if (value) document.documentElement.style.setProperty(name, value);
     });
     setLibraryHidden(localStorage.getItem(profileKey('libraryHidden')) === '1', false);
+    setControlsHidden(localStorage.getItem(profileKey('controlsHidden')) === '1', false);
     setNotesHidden(localStorage.getItem(profileKey('notesHidden')) !== '0', false);
     setViewMode(localStorage.getItem(profileKey('viewMode')) || 'split', false);
     setCompactTop(localStorage.getItem(profileKey('compactTop')) === '1', false);
@@ -663,6 +667,10 @@
       try {
         const handle = await window.showDirectoryPicker({ mode: 'read' });
         const files = await filesFromDirectoryHandle(handle);
+        if (state.directoryHandle && await copyFilesToLibrary(files, handle.name)) {
+          toast(`已添加文件夹 ${handle.name}`);
+          return;
+        }
         scan([...state.files, ...files], '已添加文件夹');
         return;
       } catch (err) {
@@ -674,13 +682,26 @@
     els.input.click();
   }
 
-  async function copyFilesToLibrary(files){
+  function cleanPathSegment(value){
+    return String(value || 'files').replace(/[<>:"/\\|?*\x00-\x1F]/g, ' ').replace(/\s+/g, ' ').trim() || 'files';
+  }
+
+  async function writeFileToLibrary(file, relPath){
+    let dir = state.directoryHandle;
+    const parts = relPath.split(/[\\/]+/).map(cleanPathSegment).filter(Boolean);
+    const fileName = parts.pop() || cleanPathSegment(file.name);
+    for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: true });
+    const target = await dir.getFileHandle(fileName, { create: true });
+    const writable = await target.createWritable();
+    await writable.write(file);
+    await writable.close();
+  }
+
+  async function copyFilesToLibrary(files, folderName = ''){
     if (!state.directoryHandle || !await ensureFolderPermission(state.directoryHandle, true, 'readwrite')) return false;
     for (const file of files) {
-      const target = await state.directoryHandle.getFileHandle(file.name, { create: true });
-      const writable = await target.createWritable();
-      await writable.write(file);
-      await writable.close();
+      const rel = folderName ? `${folderName}/${pathOf(file)}` : file.name;
+      await writeFileToLibrary(file, rel);
     }
     await refreshFolder();
     return true;
@@ -895,6 +916,14 @@
     if (persist) localStorage.setItem(profileKey('libraryHidden'), hidden ? '1' : '0');
   }
 
+  function setControlsHidden(hidden, persist = true){
+    state.controlsHidden = hidden;
+    document.body.classList.toggle('controls-hidden', hidden);
+    els.toggleControls.textContent = hidden ? '展开' : '筛选';
+    els.toggleControls.title = hidden ? '展开筛选区' : '收起筛选区';
+    if (persist) localStorage.setItem(profileKey('controlsHidden'), hidden ? '1' : '0');
+  }
+
   function setNotesHidden(hidden, persist = true){
     state.notesHidden = hidden;
     document.body.classList.toggle('notes-hidden', hidden);
@@ -1009,6 +1038,32 @@
     await openPaper(state.active);
   }
 
+  async function addTranslationFile(file){
+    if (!state.active || !file) return;
+    const activePath = state.active.path;
+    try {
+      if (state.directoryHandle && await ensureFolderPermission(state.directoryHandle, true, 'readwrite')) {
+        await writeFileToLibrary(file, file.name);
+        await refreshFolder();
+      } else {
+        scan([...state.files, file], '已临时加入译文文件');
+      }
+      const doc = (state.docs || []).find(d => d.file.name === file.name || pathOf(d.file) === pathOf(file));
+      const paper = state.papers.find(p => p.path === activePath) || state.active;
+      if (doc && paper) {
+        state.active = paper;
+        updateMeta(paper, { manualTranslation: { id: doc.id, path: doc.path } });
+        els.translationDialog.close();
+        toast('已添加并绑定译文');
+        await openPaper(paper);
+      } else {
+        toast('译文已加入，请重新绑定一次');
+      }
+    } catch (err) {
+      toast('添加译文失败：请确认文件夹写入权限');
+    }
+  }
+
   async function clearTranslationBinding(){
     if (!state.active) return;
     updateMeta(state.active, { manualTranslation: null });
@@ -1110,6 +1165,7 @@
   els.compactTop.onclick = () => setCompactTop(!state.compactTop);
   els.hideLibrary.onclick = () => setLibraryHidden(true);
   els.showLibrary.onclick = () => setLibraryHidden(false);
+  els.toggleControls.onclick = () => setControlsHidden(!state.controlsHidden);
   els.hideNotes.onclick = () => setNotesHidden(true);
   els.showNotes.onclick = () => setNotesHidden(false);
   els.addFolder.onclick = addFolder;
@@ -1145,12 +1201,13 @@
   els.clearTranslation.onclick = clearTranslationBinding;
   els.translationCancel.onclick = () => els.translationDialog.close();
   els.translationForm.addEventListener('submit', e => { e.preventDefault(); bindTranslation(); });
+  els.translationAddFile.onclick = () => els.translationFileInput.click();
+  els.translationFileInput.onchange = e => { const file = e.target.files?.[0]; if (file) addTranslationFile(file); e.target.value = ''; };
   els.backupExport.onclick = exportData;
   els.backupLater.onclick = () => { localStorage.setItem(profileKey('backupLaterAt'), new Date().toISOString()); checkBackupReminder(); };
   els.orig.addEventListener('scroll', queueProgressSave);
   els.exportBtn.onclick = exportData; els.importBtn.onclick = () => els.importInput.click();
   els.importInput.onchange = e => { const f = e.target.files?.[0]; if (f) importData(f).catch(err => alert(err.message)); e.target.value = ''; };
-  els.aiBtn.onclick = () => els.aiDialog.showModal();
   els.loginBtn.onclick = () => { els.authError.textContent = ''; els.authName.value = state.user?.name || ''; els.authPassword.value = ''; els.authDialog.showModal(); };
   els.logoutBtn.onclick = logout;
   els.authCancel.onclick = () => els.authDialog.close();
@@ -1166,6 +1223,7 @@
       e.preventDefault();
       const kind = splitter.dataset.splitter;
       const startX = e.clientX;
+      let frame = 0, lastEvent = e;
       const styles = getComputedStyle(document.documentElement);
       const start = {
         library: parseFloat(styles.getPropertyValue('--library-width')) || 320,
@@ -1173,21 +1231,37 @@
         translation: parseFloat(styles.getPropertyValue('--translation-width')) || .9,
         notes: parseFloat(styles.getPropertyValue('--notes-width')) || 300,
       };
-      const move = ev => {
+      document.body.classList.add('resizing');
+      splitter.setPointerCapture?.(e.pointerId);
+      const applyMove = ev => {
         const dx = ev.clientX - startX;
         if (kind === 'library') {
-          setCss('--library-width', Math.max(220, Math.min(560, start.library + dx)) + 'px');
+          applyCss('--library-width', Math.max(220, Math.min(560, start.library + dx)) + 'px');
         } else if (kind === 'original') {
           const total = start.original + start.translation;
-          const delta = dx / Math.max(320, window.innerWidth);
+          const grid = splitter.closest('.viewer-grid');
+          const width = Math.max(320, grid?.clientWidth || window.innerWidth);
+          const delta = dx / width;
           const nextOriginal = Math.max(.45, Math.min(total - .45, start.original + delta * 3));
-          setCss('--original-width', nextOriginal + 'fr');
-          setCss('--translation-width', (total - nextOriginal) + 'fr');
+          applyCss('--original-width', nextOriginal + 'fr');
+          applyCss('--translation-width', (total - nextOriginal) + 'fr');
         } else if (kind === 'translation') {
-          setCss('--notes-width', Math.max(220, Math.min(560, start.notes - dx)) + 'px');
+          applyCss('--notes-width', Math.max(220, Math.min(560, start.notes - dx)) + 'px');
         }
       };
+      const move = ev => {
+        lastEvent = ev;
+        if (frame) return;
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          applyMove(lastEvent);
+        });
+      };
       const up = () => {
+        if (frame) cancelAnimationFrame(frame);
+        applyMove(lastEvent);
+        ['--library-width','--original-width','--translation-width','--notes-width'].forEach(persistCss);
+        document.body.classList.remove('resizing');
         window.removeEventListener('pointermove', move);
         window.removeEventListener('pointerup', up);
       };

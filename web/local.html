@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Paper Reader</title>
-  <link rel="stylesheet" href="local_styles.css?v=20260702-lowerrename1" />
+  <link rel="stylesheet" href="local_styles.css?v=20260702-libraryfix1" />
 </head>
 <body>
   <aside class="library">
@@ -16,32 +16,36 @@
       <div class="library-actions">
         <button id="pickFolderBtn">选择文件夹</button>
         <button id="refreshFolderBtn" disabled>刷新</button>
+        <button id="toggleControlsBtn" title="收起筛选区">筛选</button>
         <button id="hideLibraryBtn" class="icon-btn" title="隐藏文献栏" aria-label="隐藏文献栏">×</button>
       </div>
     </header>
     <input id="folderInput" type="file" webkitdirectory directory multiple hidden />
     <input id="addFilesInput" type="file" accept=".pdf,.md,.txt,.html,.htm,application/pdf,text/plain,text/markdown,text/html" multiple hidden />
+    <input id="translationFileInput" type="file" accept=".pdf,.md,.txt,.html,.htm,application/pdf,text/plain,text/markdown,text/html" hidden />
     <input id="replacePdfInput" type="file" accept=".pdf,application/pdf" hidden />
     <input id="importInput" type="file" accept="application/json,.json" hidden />
-    <input id="searchInput" class="search" placeholder="搜索文件名" />
-    <div id="libraryStats" class="library-stats"></div>
-    <div class="library-tools">
-      <button id="addFolderBtn" disabled>添加文件夹</button>
-      <button id="addFilesBtn" disabled>添加文献</button>
-      <button id="selectAllBtn" disabled>全选</button>
-      <button id="deleteSelectedBtn" class="danger" disabled>删除选中</button>
+    <div id="libraryControls" class="library-controls">
+      <input id="searchInput" class="search" placeholder="搜索文件名" />
+      <div id="libraryStats" class="library-stats"></div>
+      <div class="library-tools">
+        <button id="addFolderBtn" disabled>添加文件夹</button>
+        <button id="addFilesBtn" disabled>添加文献</button>
+        <button id="selectAllBtn" disabled>全选</button>
+        <button id="deleteSelectedBtn" class="danger" disabled>删除选中</button>
+      </div>
+      <div id="filterBar" class="filters">
+        <button class="active" data-filter="all">全部</button>
+        <button data-filter="unread">未读</button>
+        <button data-filter="read">已读</button>
+        <button data-filter="translated">有译文</button>
+        <button data-filter="missing">无译文</button>
+        <button data-filter="starred">星标</button>
+      </div>
+      <select id="tagFilter" class="tag-filter">
+        <option value="">全部标签</option>
+      </select>
     </div>
-    <div id="filterBar" class="filters">
-      <button class="active" data-filter="all">全部</button>
-      <button data-filter="unread">未读</button>
-      <button data-filter="read">已读</button>
-      <button data-filter="translated">有译文</button>
-      <button data-filter="missing">无译文</button>
-      <button data-filter="starred">星标</button>
-    </div>
-    <select id="tagFilter" class="tag-filter">
-      <option value="">全部标签</option>
-    </select>
     <div id="paperList" class="paper-list"></div>
   </aside>
 
@@ -69,7 +73,6 @@
         <button id="importBtn">导入数据</button>
         <button id="showLibraryBtn" class="restore-action hidden">显示文献栏</button>
         <button id="showNotesBtn" class="restore-action hidden">显示批注栏</button>
-        <button id="aiBtn">AI</button>
         <button id="loginBtn">登录</button>
         <span id="userInfo" class="user-info hidden"><span id="userName"></span><button id="logoutBtn">退出</button></span>
       </div>
@@ -129,14 +132,6 @@
 
   <div id="toast" class="toast hidden"></div>
 
-  <dialog id="aiDialog">
-    <form method="dialog">
-      <h3>AI 功能</h3>
-      <p>GitHub Pages 版本不保存服务器密钥，也不代理 AI 请求。全文翻译、AI 问答、相关文献搜索请运行 Python 增强版。</p>
-      <button>知道了</button>
-    </form>
-  </dialog>
-
   <dialog id="authDialog">
     <form id="authForm" method="dialog">
       <h3>本机登录</h3>
@@ -164,9 +159,10 @@
   <dialog id="translationDialog" class="wide-dialog">
     <form id="translationForm" method="dialog">
       <h3>绑定译文</h3>
-      <p>从当前已扫描文件中选择一个译文文件。</p>
+      <p>从当前已扫描文件中选择译文，或添加新的译文文件。</p>
       <select id="translationSelect" class="full-select"></select>
       <div class="dialog-actions">
+        <button type="button" id="translationAddFileBtn">添加译文文件</button>
         <button type="button" id="translationCancelBtn">取消</button>
         <button type="submit">绑定</button>
       </div>
@@ -174,6 +170,6 @@
   </dialog>
 
   <script src="pdf.min.js"></script>
-  <script src="local_app.js?v=20260702-lowerrename1"></script>
+  <script src="local_app.js?v=20260702-libraryfix1"></script>
 </body>
 </html>

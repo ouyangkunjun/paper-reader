@@ -45,6 +45,14 @@ button:hover:not(:disabled), button.active {
 }
 button:disabled { color: #98a2b3; cursor: not-allowed; }
 .hidden { display: none !important; }
+body.resizing {
+  user-select: none;
+  cursor: col-resize;
+}
+body.resizing iframe,
+body.resizing .native-pdf-frame {
+  pointer-events: none;
+}
 .library {
   grid-area: library;
   min-width: 0;
@@ -79,6 +87,8 @@ button:disabled { color: #98a2b3; cursor: not-allowed; }
   border-radius: 6px;
   font: inherit;
 }
+.controls-hidden .library-controls { display: none; }
+.controls-hidden .paper-list { padding-top: 12px; }
 .library-tools {
   padding: 0 16px 10px;
   display: grid;
