@@ -53,6 +53,10 @@ body.resizing iframe,
 body.resizing .native-pdf-frame {
   pointer-events: none;
 }
+body.alt-sync-scroll iframe,
+body.alt-sync-scroll .native-pdf-frame {
+  pointer-events: none;
+}
 .library {
   grid-area: library;
   min-width: 0;
