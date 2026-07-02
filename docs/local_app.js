@@ -153,6 +153,41 @@
     return title;
   }
 
+  function looksDoiTitle(value){
+    return /^doi:\s*10\.\d{4,9}\//i.test(String(value || '').trim());
+  }
+
+  function titleFromPdfLines(lines){
+      const clean = lines
+      .map(line => cleanPdfTitle(line))
+      .filter(Boolean)
+      .filter(line => !/^(available online|journal of|science direct|www\.|http|abstract|keywords|published as|proceedings|conference paper|elsevier)/i.test(line))
+      .filter(line => !/^arxiv:/i.test(line));
+    const abstractIndex = clean.findIndex(line => /^abstract$/i.test(line));
+    const top = (abstractIndex > 0 ? clean.slice(0, abstractIndex) : clean.slice(0, 14))
+      .filter(line => line.length >= 8 && line.length <= 180);
+    function authorish(line){
+      return /@/.test(line)
+        || /received\s+\d/i.test(line)
+        || /\b(university|institute|department|center|centre|laborator|contribution)\b/i.test(line)
+        || (line.match(/\b[A-Z][a-z]+(?:-[A-Z][a-z]+)?\d+\b/g) || []).length >= 2
+        || (line.match(/\b[A-Z][a-z]+(?:-[A-Z][a-z]+)?\b/g) || []).length >= 4
+        || (line.split(',').length >= 3 && /\b[A-Z]\.\s*[A-Z]/.test(line));
+    }
+    const start = top.findIndex(line => !authorish(line) && /[a-zA-Z\u4e00-\u9fa5]/.test(line));
+    if (start >= 0) {
+      const parts = [];
+      for (const line of top.slice(start)) {
+        if (authorish(line)) break;
+        parts.push(line);
+        if (parts.join(' ').length > 150 || parts.length >= 3) break;
+      }
+      const title = cleanPdfTitle(parts.join(' '));
+      if (title) return title;
+    }
+    return top.find(line => !authorish(line)) || '';
+  }
+
   function isGeneratedPdfName(value){
     const base = name(value).replace(/\.pdf$/i, '');
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(base)
@@ -500,13 +535,49 @@
     if (changed) await cleanupHiddenReplacedFiles(state.files, replacedPaths, new Set(state.files.map(pathOf)));
   }
 
+  async function renamePaperFileToTitle(p){
+    if (!p?.pdfTitle) return false;
+    const parent = p.file._parentHandle;
+    const oldName = p.file._entryName || p.file.name;
+    const targetName = safePdfNameFromTitle(p);
+    if (!parent?.getFileHandle || !parent?.removeEntry || oldName === targetName) return false;
+    try {
+      if (await parent.queryPermission?.({ mode: 'readwrite' }) !== 'granted') return false;
+      const target = await parent.getFileHandle(targetName, { create: true });
+      const writable = await target.createWritable();
+      await writable.write(p.file);
+      await writable.close();
+      await parent.removeEntry(oldName);
+      rememberReplacedPath(p.path, p.path.replace(/[^/\\]+$/, targetName));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async function extractPdfTitle(file){
     if (!window.pdfjsLib || ext(file.name) !== '.pdf') return '';
     try {
       const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
       const meta = await pdf.getMetadata().catch(() => null);
+      let pageTitle = '';
+      try {
+        const page = await pdf.getPage(1);
+        const text = await page.getTextContent();
+        const rows = new Map();
+        text.items.forEach(item => {
+          const y = Math.round(item.transform?.[5] || 0);
+          if (!rows.has(y)) rows.set(y, []);
+          rows.get(y).push(item.str || '');
+        });
+        const lines = [...rows.entries()]
+          .sort((a, b) => b[0] - a[0])
+          .map(([, parts]) => parts.join(' ').replace(/\s+/g, ' ').trim());
+        pageTitle = titleFromPdfLines(lines);
+      } catch {}
       await pdf.destroy?.();
-      return cleanPdfTitle(meta?.info?.Title || meta?.metadata?.get?.('dc:title'));
+      const metaTitle = cleanPdfTitle(meta?.info?.Title || meta?.metadata?.get?.('dc:title'));
+      return (!metaTitle || looksDoiTitle(metaTitle)) ? (pageTitle || metaTitle) : metaTitle;
     } catch {
       return '';
     }
@@ -544,7 +615,7 @@
       if (isGeneratedPdfName(p.path)) {
         const meta = loadMeta(p);
         if (!meta.displayName) saveMeta(p, { ...meta, displayName: title });
-        if (await renameGeneratedPdfToTitle(p) && state.directoryHandle) {
+        if (await renamePaperFileToTitle(p) && state.directoryHandle) {
           scan(await filesFromDirectoryHandle(state.directoryHandle), '已按标题整理 PDF 文件名');
           return;
         }
@@ -580,26 +651,6 @@
     }
   }
 
-  async function renameGeneratedPdfToTitle(p){
-    if (!p?.pdfTitle || !isGeneratedPdfName(p.path)) return false;
-    const parent = p.file._parentHandle;
-    const oldName = p.file._entryName || p.file.name;
-    const targetName = safePdfNameFromTitle(p);
-    if (!parent?.getFileHandle || !parent?.removeEntry || oldName === targetName) return false;
-    try {
-      if (await parent.queryPermission?.({ mode: 'readwrite' }) !== 'granted') return false;
-      const target = await parent.getFileHandle(targetName, { create: true });
-      const writable = await target.createWritable();
-      await writable.write(p.file);
-      await writable.close();
-      await parent.removeEntry(oldName);
-      rememberReplacedPath(p.path, p.path.replace(/[^/\\]+$/, targetName));
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
   function scan(files, message = '已读取本机文件夹'){
     const token = ++state.scanToken;
     const deduped = dedupeFiles(files);
@@ -613,7 +664,7 @@
       }
     }
     if (changedReplacements) saveReplacedPaths(replacedPaths);
-    cleanupHiddenReplacedFiles(deduped, replacedPaths, presentPaths);
+    cleanupHiddenReplacedFiles(deduped, replacedPaths, presentPaths).catch(() => {});
     state.files = deduped.filter(f => !replacedPaths[pathOf(f)] || !presentPaths.has(replacedPaths[pathOf(f)]));
     state.selected = new Set([...state.selected].filter(pid => state.files.some(f => id(f) === pid)));
     const docs = [];
@@ -632,7 +683,7 @@
         autoTranslation: bestTranslationFor(d, translations),
         translation: bestTranslationFor(d, translations)
       }));
-    collapseDuplicatePapers();
+    collapseDuplicatePapers().then(() => renderList()).catch(() => {});
     state.active = null;
     clear('已读取文件夹，请从左侧选择文献。');
     renderList();
@@ -775,7 +826,7 @@
     if (!state.directoryHandle) state.directoryHandle = await loadDirectoryHandle();
     if (state.directoryHandle) {
       try {
-        if (!await ensureFolderPermission(state.directoryHandle, true)) {
+        if (!await ensureFolderPermission(state.directoryHandle, true, 'readwrite')) {
           toast('没有获得文件夹读取权限');
           return;
         }
