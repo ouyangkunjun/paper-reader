@@ -474,89 +474,14 @@ body.mode-stacked [data-splitter="translation"], body.mode-stacked .notes { disp
 .loading { padding: 16px; }
 .pdf-page-wrap { position: relative; max-width: 100%; margin: 0 auto 14px; background: #fff; box-shadow: var(--shadow); }
 .pdf-page { display: block; max-width: 100%; background: #fff; }
-.text-doc {
-  max-width: 860px;
-  margin: 0 auto;
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 28px 34px;
-  color: #1f2937;
-  font-family: "Times New Roman", "Noto Serif SC", "Songti SC", "SimSun", serif;
-  font-size: 16px;
-  line-height: 1.72;
-}
-.text-doc h1,
-.text-doc h2,
-.text-doc h3,
-.text-doc h4,
-.text-doc h5,
-.text-doc h6 {
-  margin: 1.35em 0 .65em;
-  color: #111827;
-  font-family: "Segoe UI", "Noto Sans SC", "Microsoft YaHei", sans-serif;
-  font-weight: 700;
-  line-height: 1.35;
-}
-.text-doc h1 { font-size: 1.9em; padding-bottom: .3em; border-bottom: 1px solid #e5e7eb; }
-.text-doc h2 { font-size: 1.55em; padding-bottom: .25em; border-bottom: 1px solid #eef2f7; }
-.text-doc h3 { font-size: 1.25em; }
-.text-doc p { margin: .85em 0; }
-.text-doc a { color: #2563eb; text-decoration: none; }
-.text-doc a:hover { text-decoration: underline; }
-.text-doc ul,
-.text-doc ol { padding-left: 1.7em; margin: .8em 0; }
-.text-doc li { margin: .25em 0; }
-.text-doc blockquote {
-  margin: 1em 0;
-  padding: .2em 1em;
-  color: #596579;
-  border-left: 4px solid #d0d7de;
-  background: #f8fafc;
-}
-.text-doc table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 1em 0;
-  font-size: .95em;
-}
-.text-doc th,
-.text-doc td {
-  border: 1px solid #d0d7de;
-  padding: 7px 10px;
-  vertical-align: top;
-}
-.text-doc th { background: #f3f6fa; font-weight: 700; }
-.text-doc code {
-  padding: .15em .35em;
-  border-radius: 4px;
-  background: #f3f4f6;
-  font-family: Consolas, "SFMono-Regular", monospace;
-  font-size: .9em;
-}
-.text-doc pre {
-  overflow: auto;
-  margin: 1em 0;
-  padding: 12px 14px;
-  border-radius: 6px;
-  background: #f6f8fa;
-  border: 1px solid #e5e7eb;
-}
-.text-doc pre code {
-  padding: 0;
-  background: transparent;
-  font-size: .9em;
-}
-.text-doc hr {
-  border: 0;
-  border-top: 1px solid #e5e7eb;
-  margin: 1.6em 0;
-}
+.text-doc { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 18px; line-height: 1.7; white-space: pre-wrap; }
+.text-doc h3 { margin: 1.2em 0 .5em; }
+.text-doc p { margin: .7em 0; }
 .text-doc img {
   display: block;
   max-width: 100%;
   height: auto;
-  margin: 16px auto;
+  margin: 12px auto;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: #fff;
