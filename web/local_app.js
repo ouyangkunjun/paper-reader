@@ -627,6 +627,22 @@
     });
   }
 
+  function renderNativePdf(file, box){
+    box.className = 'viewer native-pdf-viewer';
+    box.innerHTML = '';
+    const url = URL.createObjectURL(file);
+    const frame = document.createElement('iframe');
+    frame.className = 'native-pdf-frame';
+    frame.src = url + '#view=FitH';
+    frame.onload = () => setTimeout(() => URL.revokeObjectURL(url), 30000);
+    box.appendChild(frame);
+    const meta = loadMeta(state.active);
+    saveMeta(state.active, {
+      ...meta,
+      progress: { ...(meta.progress || {}), page: meta.progress?.page || 1, nativeViewer: true, updatedAt: new Date().toISOString() }
+    });
+  }
+
   function addDrawCanvas(wrap, pageNum){
     const canvas = document.createElement('canvas');
     canvas.className = 'draw-layer';
@@ -744,9 +760,10 @@
     }
   }
 
-  async function renderDoc(doc, box, empty){
+  async function renderDoc(doc, box, empty, options = {}){
     if (!doc) { box.className = 'viewer empty'; box.textContent = empty; return; }
     const f = doc.file || doc, e = ext(f.name);
+    if (e === '.pdf' && options.nativePdf) return renderNativePdf(f, box);
     if (e === '.pdf') return renderPdf(f, box);
     if (e === '.html' || e === '.htm') { box.className = 'viewer'; box.innerHTML = ''; const fr = document.createElement('iframe'); fr.className = 'html-frame'; fr.src = URL.createObjectURL(f); box.appendChild(fr); return; }
     const text = await f.text();
@@ -761,7 +778,7 @@
     els.oname.textContent = p.file.name; els.tname.textContent = translation ? name(translation.path) : '未找到对应译文';
     els.read.disabled = els.save.disabled = els.add.disabled = els.drawBtn.disabled = false;
     updateRead(); renderList(); renderNotes(); renderDetail();
-    await Promise.all([renderDoc(p.file, els.orig, '无法显示原文。'), renderDoc(translation, els.trans, '未找到对应译文文件。')]);
+    await Promise.all([renderDoc(p.file, els.orig, '无法显示原文。', { nativePdf: true }), renderDoc(translation, els.trans, '未找到对应译文文件。')]);
     checkBackupReminder();
   }
 
@@ -948,7 +965,10 @@
   els.translationForm.addEventListener('submit', e => { e.preventDefault(); bindTranslation(); });
   els.backupExport.onclick = exportData;
   els.backupLater.onclick = () => { localStorage.setItem(profileKey('backupLaterAt'), new Date().toISOString()); checkBackupReminder(); };
-  els.drawBtn.onclick = () => { state.drawMode = !state.drawMode; els.drawBtn.classList.toggle('active', state.drawMode); els.drawToolbar.classList.toggle('hidden', !state.drawMode); };
+  els.drawBtn.onclick = () => {
+    if (els.orig.classList.contains('native-pdf-viewer')) toast('原文使用浏览器 PDF 查看器，画笔标注不可覆盖；可使用文字批注。');
+    state.drawMode = !state.drawMode; els.drawBtn.classList.toggle('active', state.drawMode); els.drawToolbar.classList.toggle('hidden', !state.drawMode);
+  };
   els.drawToolbar.addEventListener('click', e => { const b = e.target.closest('[data-tool]'); if (!b) return; state.drawTool = b.dataset.tool; els.drawToolbar.querySelectorAll('[data-tool]').forEach(x => x.classList.toggle('active', x === b)); });
   els.drawColor.oninput = e => state.drawColor = e.target.value;
   els.drawSize.oninput = e => state.drawSize = +e.target.value;
