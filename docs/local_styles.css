@@ -526,49 +526,70 @@ body.mode-stacked [data-splitter="translation"], body.mode-stacked [data-splitte
   padding: 0 12px;
 }
 .ai-actions button { flex: 1; padding: 8px; }
-.ai-image-drop {
-  margin: 10px 12px 0;
-  padding: 10px;
-  border: 1px dashed #b8c5d8;
-  border-radius: 8px;
-  background: #f8fbff;
+.ai-actions button.active,
+.ai-tool-row button.active {
+  color: #14532d;
+  border-color: #86efac;
+  background: #dcfce7;
+}
+.ai-tool-row {
   display: grid;
-  grid-template-columns: minmax(0,1fr) auto;
-  align-items: center;
-  gap: 10px;
-  cursor: pointer;
-}
-.ai-image-drop strong {
-  display: block;
-  font-size: 14px;
-}
-.ai-image-drop span {
-  display: block;
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: 12px;
-}
-.ai-image-drop.dragover,
-.ai-image-drop.has-image {
-  border-color: var(--accent);
-  background: #eef4ff;
-}
-.ai-image-preview {
+  grid-template-columns: minmax(0,1fr);
+  gap: 6px;
   margin: 10px 12px 0;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
-  overflow: hidden;
-}
-.ai-image-preview img {
-  display: block;
-  width: 100%;
-  max-height: 180px;
-  object-fit: contain;
   background: #f8fafc;
-}
-.ai-image-preview .ai-actions {
   padding: 10px;
+}
+.ai-tool-row button { width: 100%; padding: 8px; }
+.ai-tool-row span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+body.screenshot-mode .reader {
+  cursor: crosshair;
+}
+.screenshot-capture-layer {
+  position: fixed;
+  z-index: 70;
+  cursor: crosshair;
+  background: rgba(255,255,255,.01);
+}
+.screenshot-marquee {
+  position: fixed;
+  z-index: 80;
+  pointer-events: none;
+  border: 2px solid var(--accent);
+  background: rgba(47, 107, 255, .12);
+  box-shadow: 0 0 0 9999px rgba(15, 23, 42, .08);
+}
+.ai-inline-translation {
+  position: fixed;
+  z-index: 90;
+  width: min(340px, calc(100vw - 24px));
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid #b8c5d8;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  box-shadow: var(--shadow);
+  padding: 12px;
+  white-space: pre-wrap;
+  line-height: 1.55;
+}
+.ai-inline-translation.screenshot {
+  border-color: #86efac;
+  background: #f7fff9;
+}
+.ai-inline-translation button {
+  float: right;
+  margin: -4px -4px 6px 8px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
 }
 .ai-panel .ai-answer {
   flex: 1;
