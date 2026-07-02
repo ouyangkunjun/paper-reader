@@ -13,11 +13,6 @@
     notes: { items: [] },
     filter: 'all',
     pdfToken: 0,
-    drawMode: false,
-    drawTool: 'pen',
-    drawColor: '#e74c3c',
-    drawSize: 4,
-    drawing: null,
     libraryHidden: false,
     notesHidden: false,
     compactTop: false,
@@ -26,6 +21,7 @@
     tagFilter: '',
     viewMode: 'split',
     progressTimer: null,
+    scanToken: 0,
   };
   const $ = (s) => document.querySelector(s);
   const els = {
@@ -45,8 +41,7 @@
     translationForm: $('#translationForm'), translationSelect: $('#translationSelect'), translationCancel: $('#translationCancelBtn'),
     replaceDialog: $('#replaceDialog'), replaceCancel: $('#replaceCancelBtn'), replaceKeepName: $('#replaceKeepNameBtn'), replaceTitleName: $('#replaceTitleNameBtn'),
     backupBanner: $('#backupBanner'), backupExport: $('#backupExportBtn'), backupLater: $('#backupLaterBtn'),
-    notes: $('#notesList'), drawBtn: $('#drawBtn'), drawToolbar: $('#drawToolbar'), drawColor: $('#drawColor'),
-    drawSize: $('#drawSize'), clearDraw: $('#clearDrawBtn'), exportBtn: $('#exportBtn'), importBtn: $('#importBtn'),
+    notes: $('#notesList'), exportBtn: $('#exportBtn'), importBtn: $('#importBtn'),
     importInput: $('#importInput'), aiBtn: $('#aiBtn'), aiDialog: $('#aiDialog'), toast: $('#toast'),
     loginBtn: $('#loginBtn'), userInfo: $('#userInfo'), userName: $('#userName'), logoutBtn: $('#logoutBtn'),
     authDialog: $('#authDialog'), authForm: $('#authForm'), authName: $('#authName'), authPassword: $('#authPassword'),
@@ -110,10 +105,8 @@
   function saveMeta(p, meta){ set(key('meta', p.id), { ...meta, updatedAt: new Date().toISOString() }); }
   function updateMeta(p, patch){ const meta = { ...loadMeta(p), ...patch }; saveMeta(p, meta); return meta; }
   function loadNotes(p){ return get(key('notes', p.id), { items: [] }); }
-  function loadDraw(p){ return get(key('draw', p.id), { pages: {} }); }
-  function saveDraw(p, data){ set(key('draw', p.id), data); }
   function toast(msg){ els.toast.textContent = msg; els.toast.classList.remove('hidden'); clearTimeout(toast.t); toast.t = setTimeout(() => els.toast.classList.add('hidden'), 1800); }
-  function displayTitle(p){ return loadMeta(p).displayName || p.title; }
+  function displayTitle(p){ return loadMeta(p).displayName || p.pdfTitle || p.title; }
   function fmtTime(v){ return v ? new Date(v).toLocaleString() : '无'; }
   function isStarred(p){ return !!loadMeta(p).starred; }
   function paperTags(p){ return loadMeta(p).tags || []; }
@@ -149,6 +142,27 @@
   function saveUsers(users){ set(appKey('users'), users); }
   function loadReplacedPaths(){ return get(profileKey('replacedPaths'), {}); }
   function saveReplacedPaths(paths){ set(profileKey('replacedPaths'), paths); }
+
+  function cleanPdfTitle(value){
+    const title = String(value || '').replace(/\.pdf$/i, '').replace(/\s+/g, ' ').trim();
+    if (!title || title.length < 4 || /^(untitled|document|pdf)$/i.test(title)) return '';
+    return title;
+  }
+
+  function isGeneratedPdfName(value){
+    const base = name(value).replace(/\.pdf$/i, '');
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(base)
+      || /^_?upload[_\-\s]*tmp/i.test(base)
+      || /^download(?:\s*\(\d+\))?$/i.test(base);
+  }
+
+  function titleKey(value){
+    return compactStem(value).slice(0, 180);
+  }
+
+  function paperTitleKey(p){
+    return titleKey(p.pdfTitle || loadMeta(p).displayName || p.title);
+  }
 
   function applyUser(){
     if (state.user) {
@@ -415,7 +429,83 @@
     });
   }
 
+  function collapseDuplicatePapers(){
+    const groups = new Map();
+    for (const p of state.papers) {
+      const k = paperTitleKey(p);
+      if (!k || k.length < 12) continue;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(p);
+    }
+    const hidden = new Set();
+    const replacedPaths = loadReplacedPaths();
+    let changed = false;
+    for (const group of groups.values()) {
+      if (group.length < 2) continue;
+      const best = [...group].sort((a, b) => {
+        const am = a.file.lastModified || 0, bm = b.file.lastModified || 0;
+        if (am !== bm) return bm - am;
+        return (isGeneratedPdfName(b.path) ? 1 : 0) - (isGeneratedPdfName(a.path) ? 1 : 0);
+      })[0];
+      for (const p of group) {
+        if (p === best) continue;
+        hidden.add(p.id);
+        if (!replacedPaths[p.path]) {
+          replacedPaths[p.path] = best.path;
+          changed = true;
+        }
+      }
+    }
+    if (changed) saveReplacedPaths(replacedPaths);
+    if (changed) cleanupHiddenReplacedFiles(state.files, replacedPaths, new Set(state.files.map(pathOf)));
+    if (hidden.size) state.papers = state.papers.filter(p => !hidden.has(p.id));
+  }
+
+  async function extractPdfTitle(file){
+    if (!window.pdfjsLib || ext(file.name) !== '.pdf') return '';
+    try {
+      const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+      const meta = await pdf.getMetadata().catch(() => null);
+      await pdf.destroy?.();
+      return cleanPdfTitle(meta?.info?.Title || meta?.metadata?.get?.('dc:title'));
+    } catch {
+      return '';
+    }
+  }
+
+  async function enrichPaperTitles(token){
+    for (const p of [...state.papers]) {
+      if (token !== state.scanToken) return;
+      const title = await extractPdfTitle(p.file);
+      if (!title) continue;
+      p.pdfTitle = title;
+      if (isGeneratedPdfName(p.path)) {
+        const meta = loadMeta(p);
+        if (!meta.displayName) saveMeta(p, { ...meta, displayName: title });
+      }
+    }
+    if (token !== state.scanToken) return;
+    collapseDuplicatePapers();
+    renderList();
+    renderDetail();
+  }
+
+  async function cleanupHiddenReplacedFiles(files, replacedPaths, presentPaths){
+    for (const f of files) {
+      const oldPath = pathOf(f);
+      if (!replacedPaths[oldPath] || !presentPaths.has(replacedPaths[oldPath])) continue;
+      const parent = f._parentHandle;
+      const entryName = f._entryName || f.name;
+      if (!parent?.removeEntry || !parent.queryPermission) continue;
+      try {
+        const permission = await parent.queryPermission({ mode: 'readwrite' });
+        if (permission === 'granted') await parent.removeEntry(entryName);
+      } catch {}
+    }
+  }
+
   function scan(files, message = '已读取本机文件夹'){
+    const token = ++state.scanToken;
     const deduped = dedupeFiles(files);
     const presentPaths = new Set(deduped.map(pathOf));
     const replacedPaths = loadReplacedPaths();
@@ -427,6 +517,7 @@
       }
     }
     if (changedReplacements) saveReplacedPaths(replacedPaths);
+    cleanupHiddenReplacedFiles(deduped, replacedPaths, presentPaths);
     state.files = deduped.filter(f => !replacedPaths[pathOf(f)] || !presentPaths.has(replacedPaths[pathOf(f)]));
     state.selected = new Set([...state.selected].filter(pid => state.files.some(f => id(f) === pid)));
     const docs = [];
@@ -445,11 +536,13 @@
         autoTranslation: bestTranslationFor(d, translations),
         translation: bestTranslationFor(d, translations)
       }));
+    collapseDuplicatePapers();
     state.active = null;
     clear('已读取文件夹，请从左侧选择文献。');
     renderList();
     toast(message);
     els.refresh.disabled = false;
+    enrichPaperTitles(token);
   }
 
   async function filesFromDirectoryHandle(handle){
@@ -591,7 +684,7 @@
     els.tname.textContent = '自动匹配同名译文';
     els.orig.className = 'viewer empty'; els.orig.textContent = '请选择 PDF。';
     els.trans.className = 'viewer empty'; els.trans.textContent = '未选择文献。';
-    els.read.disabled = els.save.disabled = els.add.disabled = els.drawBtn.disabled = true;
+    els.read.disabled = els.save.disabled = els.add.disabled = true;
     state.notes = { items: [] };
     renderNotes();
     renderDetail();
@@ -657,84 +750,6 @@
     });
   }
 
-  function addDrawCanvas(wrap, pageNum){
-    const canvas = document.createElement('canvas');
-    canvas.className = 'draw-layer';
-    canvas.dataset.page = pageNum;
-    wrap.appendChild(canvas);
-    resizeDrawCanvas(canvas);
-    restoreDrawCanvas(canvas);
-    wireDrawCanvas(canvas);
-  }
-
-  function resizeDrawCanvas(canvas){
-    const rect = canvas.parentElement.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.max(1, Math.round(rect.width * dpr));
-    canvas.height = Math.max(1, Math.round(rect.height * dpr));
-    canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
-  }
-
-  function restoreDrawCanvas(canvas){
-    if (!state.active) return;
-    const data = loadDraw(state.active);
-    const image = data.pages?.[canvas.dataset.page];
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (!image) return;
-    const img = new Image();
-    img.onload = () => ctx.drawImage(img, 0, 0, canvas.clientWidth, canvas.clientHeight);
-    img.src = image;
-  }
-
-  function persistCanvas(canvas){
-    if (!state.active) return;
-    const data = loadDraw(state.active);
-    data.pages = data.pages || {};
-    data.pages[canvas.dataset.page] = canvas.toDataURL('image/png');
-    data.updatedAt = new Date().toISOString();
-    saveDraw(state.active, data);
-  }
-
-  function point(e, canvas){
-    const r = canvas.getBoundingClientRect();
-    const t = e.touches ? e.touches[0] : e;
-    return { x: t.clientX - r.left, y: t.clientY - r.top };
-  }
-
-  function wireDrawCanvas(canvas){
-    const start = (e) => {
-      if (!state.drawMode) return;
-      e.preventDefault();
-      const p = point(e, canvas);
-      const ctx = canvas.getContext('2d');
-      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.globalAlpha = state.drawTool === 'highlight' ? 0.35 : 1;
-      ctx.strokeStyle = state.drawTool === 'highlight' ? '#ffe066' : state.drawColor;
-      ctx.lineWidth = state.drawTool === 'highlight' ? state.drawSize * 2.4 : state.drawSize;
-      ctx.beginPath(); ctx.moveTo(p.x, p.y);
-      state.drawing = { canvas, ctx };
-    };
-    const move = (e) => {
-      if (!state.drawing || state.drawing.canvas !== canvas) return;
-      e.preventDefault();
-      const p = point(e, canvas);
-      state.drawing.ctx.lineTo(p.x, p.y);
-      state.drawing.ctx.stroke();
-    };
-    const end = () => {
-      if (!state.drawing || state.drawing.canvas !== canvas) return;
-      state.drawing.ctx.globalAlpha = 1;
-      persistCanvas(canvas);
-      state.drawing = null;
-    };
-    canvas.addEventListener('mousedown', start); canvas.addEventListener('mousemove', move);
-    canvas.addEventListener('mouseup', end); canvas.addEventListener('mouseleave', end);
-    canvas.addEventListener('touchstart', start, { passive: false }); canvas.addEventListener('touchmove', move, { passive: false });
-    canvas.addEventListener('touchend', end);
-  }
-
   async function renderPdf(file, box){
     const token = ++state.pdfToken;
     box.className = 'viewer'; box.innerHTML = '<div class="paper-meta loading">正在渲染 PDF...</div>';
@@ -766,7 +781,6 @@
           viewport: vp,
           transform: outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null
         }).promise;
-        addDrawCanvas(wrap, i);
       }
       if (box === els.orig) restoreProgress();
     } catch (err) {
@@ -790,7 +804,7 @@
     const translation = paperTranslation(p);
     els.title.textContent = displayTitle(p); els.meta.textContent = p.path + ' · ' + size(p.file.size);
     els.oname.textContent = p.file.name; els.tname.textContent = translation ? name(translation.path) : '未找到对应译文';
-    els.read.disabled = els.save.disabled = els.add.disabled = els.drawBtn.disabled = false;
+    els.read.disabled = els.save.disabled = els.add.disabled = false;
     updateRead(); renderList(); renderNotes(); renderDetail();
     await Promise.all([renderDoc(p.file, els.orig, '无法显示原文。', { nativePdf: true }), renderDoc(translation, els.trans, '未找到对应译文文件。')]);
     checkBackupReminder();
@@ -808,7 +822,6 @@
     document.body.classList.toggle('notes-hidden', hidden);
     els.showNotes.classList.toggle('hidden', !hidden);
     if (persist) localStorage.setItem(profileKey('notesHidden'), hidden ? '1' : '0');
-    requestAnimationFrame(() => document.querySelectorAll('.draw-layer').forEach(c => { resizeDrawCanvas(c); restoreDrawCanvas(c); }));
   }
 
   function setViewMode(mode, persist = true){
@@ -817,7 +830,6 @@
     document.body.classList.add('mode-' + state.viewMode);
     if (els.viewMode) els.viewMode.value = state.viewMode;
     if (persist) localStorage.setItem(profileKey('viewMode'), state.viewMode);
-    requestAnimationFrame(() => document.querySelectorAll('.draw-layer').forEach(c => { resizeDrawCanvas(c); restoreDrawCanvas(c); }));
   }
 
   function setCompactTop(compact, persist = true){
@@ -825,7 +837,6 @@
     document.body.classList.toggle('compact-top', compact);
     els.compactTop.textContent = compact ? '展开顶部' : '精简顶部';
     if (persist) localStorage.setItem(profileKey('compactTop'), compact ? '1' : '0');
-    requestAnimationFrame(() => document.querySelectorAll('.draw-layer').forEach(c => { resizeDrawCanvas(c); restoreDrawCanvas(c); }));
   }
 
   function renderNotes(){
@@ -888,7 +899,7 @@
 
   function moveStoredPaperData(oldId, newId){
     if (!oldId || !newId || oldId === newId) return;
-    ['read','notes','draw','meta'].forEach(kind => {
+    ['read','notes','meta'].forEach(kind => {
       const oldKey = key(kind, oldId);
       const value = localStorage.getItem(oldKey);
       if (value && !localStorage.getItem(key(kind, newId))) localStorage.setItem(key(kind, newId), value);
@@ -943,6 +954,7 @@
     const oldId = state.active.id;
     const activePath = state.active.path;
     const activeName = state.active.file._entryName || state.active.file.name;
+    const preservedTitle = displayTitle(state.active);
     const targetName = state.replacePdfNameMode === 'title' ? safePdfNameFromTitle(state.active) : activeName;
     const parent = state.active.file._parentHandle;
     if (!parent?.getFileHandle) {
@@ -959,7 +971,8 @@
       await writable.write(file);
       await writable.close();
       if (targetName !== activeName && parent.removeEntry) {
-        try { await parent.removeEntry(activeName); } catch {}
+        try { await parent.removeEntry(activeName); }
+        catch { toast('已替换；旧 PDF 因浏览器权限限制会在列表中隐藏'); }
       }
       toast(targetName === activeName ? '已替换原文 PDF' : '已替换并按标题重命名');
       const nextPath = activePath.replace(/[^/\\]+$/, targetName);
@@ -968,7 +981,7 @@
         const files = await filesFromDirectoryHandle(state.directoryHandle);
         scan(files, '已刷新并载入替换后的 PDF');
         const next = state.papers.find(p => p.path === nextPath) || state.papers.find(p => p.file.name === targetName) || state.papers.find(p => p.path === activePath);
-        if (next) { moveStoredPaperData(oldId, next.id); await openPaper(next); }
+        if (next) { moveStoredPaperData(oldId, next.id); updateMeta(next, { ...loadMeta(next), displayName: preservedTitle }); await openPaper(next); }
       } else {
         const replacement = await target.getFile();
         try { Object.defineProperty(replacement, 'webkitRelativePath', { value: nextPath, configurable: true }); }
@@ -978,7 +991,7 @@
         state.files = state.files.map(f => pathOf(f) === activePath ? replacement : f);
         scan(state.files, '已载入替换后的 PDF');
         const next = state.papers.find(p => p.path === nextPath);
-        if (next) { moveStoredPaperData(oldId, next.id); await openPaper(next); }
+        if (next) { moveStoredPaperData(oldId, next.id); updateMeta(next, { ...loadMeta(next), displayName: preservedTitle }); await openPaper(next); }
       }
     } catch (err) {
       toast('替换失败：请确认文件夹写入权限');
@@ -1002,7 +1015,7 @@
     if (payload.app !== 'paper-reader' || !payload.items) throw new Error('不是 Paper Reader 导出的数据');
     Object.entries(payload.items).forEach(([k, v]) => { if (k.startsWith(BASE_PREFIX)) localStorage.setItem(k, v); });
     toast('数据已导入');
-    if (state.active) { state.notes = loadNotes(state.active); renderNotes(); document.querySelectorAll('.draw-layer').forEach(restoreDrawCanvas); }
+    if (state.active) { state.notes = loadNotes(state.active); renderNotes(); }
     renderList(); updateRead();
     renderDetail(); checkBackupReminder();
   }
@@ -1010,7 +1023,7 @@
   function hasUserData(){
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i) || '';
-      if (k.startsWith(storagePrefix()) && /\.(notes|draw|meta|read)\./.test(k)) return true;
+      if (k.startsWith(storagePrefix()) && /\.(notes|meta|read)\./.test(k)) return true;
     }
     return false;
   }
@@ -1069,14 +1082,6 @@
   els.translationForm.addEventListener('submit', e => { e.preventDefault(); bindTranslation(); });
   els.backupExport.onclick = exportData;
   els.backupLater.onclick = () => { localStorage.setItem(profileKey('backupLaterAt'), new Date().toISOString()); checkBackupReminder(); };
-  els.drawBtn.onclick = () => {
-    if (els.orig.classList.contains('native-pdf-viewer')) toast('原文使用浏览器 PDF 查看器，画笔标注不可覆盖；可使用文字批注。');
-    state.drawMode = !state.drawMode; els.drawBtn.classList.toggle('active', state.drawMode); els.drawToolbar.classList.toggle('hidden', !state.drawMode);
-  };
-  els.drawToolbar.addEventListener('click', e => { const b = e.target.closest('[data-tool]'); if (!b) return; state.drawTool = b.dataset.tool; els.drawToolbar.querySelectorAll('[data-tool]').forEach(x => x.classList.toggle('active', x === b)); });
-  els.drawColor.oninput = e => state.drawColor = e.target.value;
-  els.drawSize.oninput = e => state.drawSize = +e.target.value;
-  els.clearDraw.onclick = () => { if (!state.active || !confirm('清除当前文献的所有画笔标注？')) return; localStorage.removeItem(key('draw', state.active.id)); document.querySelectorAll('.draw-layer').forEach(c => c.getContext('2d').clearRect(0, 0, c.width, c.height)); toast('画笔标注已清除'); };
   els.orig.addEventListener('scroll', queueProgressSave);
   els.exportBtn.onclick = exportData; els.importBtn.onclick = () => els.importInput.click();
   els.importInput.onchange = e => { const f = e.target.files?.[0]; if (f) importData(f).catch(err => alert(err.message)); e.target.value = ''; };
@@ -1113,7 +1118,6 @@
           const nextOriginal = Math.max(.45, Math.min(total - .45, start.original + delta * 3));
           setCss('--original-width', nextOriginal + 'fr');
           setCss('--translation-width', (total - nextOriginal) + 'fr');
-          document.querySelectorAll('.draw-layer').forEach(c => { resizeDrawCanvas(c); restoreDrawCanvas(c); });
         } else if (kind === 'translation') {
           setCss('--notes-width', Math.max(220, Math.min(560, start.notes - dx)) + 'px');
         }
@@ -1126,7 +1130,6 @@
       window.addEventListener('pointerup', up);
     });
   });
-  window.addEventListener('resize', () => document.querySelectorAll('.draw-layer').forEach(c => { resizeDrawCanvas(c); restoreDrawCanvas(c); }));
   async function init(){
     state.user = get(appKey('session'), null);
     applyUser();

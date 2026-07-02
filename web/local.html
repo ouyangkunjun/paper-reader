@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Paper Reader</title>
-  <link rel="stylesheet" href="local_styles.css?v=20260702-replacepdf3" />
+  <link rel="stylesheet" href="local_styles.css?v=20260702-cleanup1" />
 </head>
 <body>
   <aside class="library">
@@ -57,7 +57,6 @@
       <div class="toolbar">
         <button id="compactTopBtn">精简顶部</button>
         <button id="toggleReadBtn" disabled>标为已读</button>
-        <button id="drawBtn" disabled>标注</button>
         <button id="saveNotesBtn" disabled>保存批注</button>
         <button id="allNotesBtn">全部批注</button>
         <select id="viewModeSelect" class="mode-select" title="阅读模式">
@@ -75,14 +74,6 @@
         <span id="userInfo" class="user-info hidden"><span id="userName"></span><button id="logoutBtn">退出</button></span>
       </div>
     </header>
-
-    <div id="drawToolbar" class="draw-toolbar hidden">
-      <button class="draw-tool active" data-tool="pen">画笔</button>
-      <button class="draw-tool" data-tool="highlight">高亮</button>
-      <label>颜色 <input id="drawColor" type="color" value="#e74c3c" /></label>
-      <label>粗细 <input id="drawSize" type="range" min="2" max="26" value="4" /></label>
-      <button id="clearDrawBtn">清除本文标注</button>
-    </div>
 
     <section id="detailPanel" class="detail-panel hidden">
       <div class="detail-main">
@@ -195,6 +186,6 @@
   </dialog>
 
   <script src="pdf.min.js"></script>
-  <script src="local_app.js?v=20260702-replacepdf3"></script>
+  <script src="local_app.js?v=20260702-cleanup1"></script>
 </body>
 </html>
