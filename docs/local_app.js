@@ -168,6 +168,19 @@
     return titleKey(p.pdfTitle || loadMeta(p).displayName || p.title);
   }
 
+  function paperIdentityKeys(p){
+    const keys = new Set();
+    [p.pdfTitle, loadMeta(p).displayName, p.title].forEach(v => {
+      const k = titleKey(v);
+      if (k && k.length >= 8) keys.add('title:' + k);
+    });
+    const doi = titleValues(p).join(' ').match(/10\.\d{4,9}\/[-._;()/:a-z0-9]+/i)?.[0];
+    if (doi) keys.add('doi:' + doi.toLowerCase());
+    const tr = paperTranslation(p);
+    if (tr?.path) keys.add('translation:' + titleKey(tr.path));
+    return [...keys];
+  }
+
   function titleValues(item){
     return [item.pdfTitle, item.docTitle, item.title, item.stem, item.path].filter(Boolean);
   }
@@ -454,25 +467,26 @@
     });
   }
 
-  function collapseDuplicatePapers(){
+  async function collapseDuplicatePapers(){
     const groups = new Map();
     for (const p of state.papers) {
-      const k = paperTitleKey(p);
-      if (!k || k.length < 12) continue;
-      if (!groups.has(k)) groups.set(k, []);
-      groups.get(k).push(p);
+      for (const k of paperIdentityKeys(p)) {
+        if (!groups.has(k)) groups.set(k, []);
+        groups.get(k).push(p);
+      }
     }
     const hidden = new Set();
     const replacedPaths = loadReplacedPaths();
     let changed = false;
     for (const group of groups.values()) {
-      if (group.length < 2) continue;
-      const best = [...group].sort((a, b) => {
+      const unique = [...new Map(group.map(p => [p.id, p])).values()];
+      if (unique.length < 2) continue;
+      const best = [...unique].sort((a, b) => {
         const am = a.file.lastModified || 0, bm = b.file.lastModified || 0;
         if (am !== bm) return bm - am;
         return (isGeneratedPdfName(b.path) ? 1 : 0) - (isGeneratedPdfName(a.path) ? 1 : 0);
       })[0];
-      for (const p of group) {
+      for (const p of unique) {
         if (p === best) continue;
         hidden.add(p.id);
         if (!replacedPaths[p.path]) {
@@ -482,8 +496,8 @@
       }
     }
     if (changed) saveReplacedPaths(replacedPaths);
-    if (changed) cleanupHiddenReplacedFiles(state.files, replacedPaths, new Set(state.files.map(pathOf)));
     if (hidden.size) state.papers = state.papers.filter(p => !hidden.has(p.id));
+    if (changed) await cleanupHiddenReplacedFiles(state.files, replacedPaths, new Set(state.files.map(pathOf)));
   }
 
   async function extractPdfTitle(file){
@@ -538,7 +552,7 @@
     }
     if (token !== state.scanToken) return;
     refreshTranslationMatches();
-    collapseDuplicatePapers();
+    await collapseDuplicatePapers();
     renderList();
     renderDetail();
     if (state.active) {
