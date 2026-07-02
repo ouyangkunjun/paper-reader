@@ -382,10 +382,37 @@
       .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, href) => `<a href="${esc(href.trim())}" target="_blank" rel="noopener">${label}</a>`);
   }
 
+  function cleanHtml(html, docPath){
+    const template = document.createElement('template');
+    template.innerHTML = htmlWithAssets(html, docPath);
+    template.content.querySelectorAll('script, style, iframe, object, embed, link, meta').forEach(node => node.remove());
+    template.content.querySelectorAll('*').forEach(node => {
+      [...node.attributes].forEach(attr => {
+        const attrName = attr.name.toLowerCase();
+        const value = attr.value.trim();
+        if (attrName.startsWith('on')) node.removeAttribute(attr.name);
+        if ((attrName === 'src' || attrName === 'href') && /^javascript:/i.test(value)) node.removeAttribute(attr.name);
+        if (attrName === 'href' && value && !/^(?:https?:|mailto:|#|blob:|data:)/i.test(value)) node.setAttribute('target', '_blank');
+      });
+      if (node.tagName === 'A') {
+        node.setAttribute('target', '_blank');
+        node.setAttribute('rel', 'noopener');
+      }
+      if (node.tagName === 'IMG' && !node.getAttribute('loading')) node.setAttribute('loading', 'lazy');
+    });
+    return template.innerHTML;
+  }
+
+  function htmlBlock(x, docPath){
+    const body = cleanHtml(x.replace(/\n/g, '<br>'), docPath);
+    return /<(p|div|h[1-6]|ul|ol|li|blockquote|table|pre|img|figure)\b/i.test(x.trim()) ? body : '<p>' + body + '</p>';
+  }
+
   function md(text, docPath = ''){
     return text.split(/\n\s*\n/).map(block => {
       const x = block.trim();
       if (!x) return '';
+      if (/<\/?[a-z][\s\S]*>/i.test(x)) return htmlBlock(x, docPath);
       if (/^#{1,4}\s/.test(x)) return '<h3>' + inlineMd(x.replace(/^#{1,4}\s/, ''), docPath) + '</h3>';
       if (/^[-*]\s/m.test(x)) return '<ul>' + x.split(/\n/).filter(Boolean).map(line => '<li>' + inlineMd(line.replace(/^[-*]\s*/, ''), docPath) + '</li>').join('') + '</ul>';
       return '<p>' + inlineMd(x, docPath).replace(/\n/g, '<br>') + '</p>';
