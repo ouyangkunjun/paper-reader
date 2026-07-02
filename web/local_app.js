@@ -106,7 +106,8 @@
   function updateMeta(p, patch){ const meta = { ...loadMeta(p), ...patch }; saveMeta(p, meta); return meta; }
   function loadNotes(p){ return get(key('notes', p.id), { items: [] }); }
   function toast(msg){ els.toast.textContent = msg; els.toast.classList.remove('hidden'); clearTimeout(toast.t); toast.t = setTimeout(() => els.toast.classList.add('hidden'), 1800); }
-  function displayTitle(p){ return loadMeta(p).displayName || p.pdfTitle || p.title; }
+  function displayTitle(p){ return loadMeta(p).displayName || p.pdfTitle || p.docTitle || p.title; }
+  function shownTitle(p){ return displayTitle(p).toLocaleLowerCase(); }
   function fmtTime(v){ return v ? new Date(v).toLocaleString() : '无'; }
   function isStarred(p){ return !!loadMeta(p).starred; }
   function paperTags(p){ return loadMeta(p).tags || []; }
@@ -162,6 +163,26 @@
 
   function paperTitleKey(p){
     return titleKey(p.pdfTitle || loadMeta(p).displayName || p.title);
+  }
+
+  function titleValues(item){
+    return [item.pdfTitle, item.docTitle, item.title, item.stem, item.path].filter(Boolean);
+  }
+
+  function titleMatchScore(source, target){
+    let best = 0;
+    for (const a of titleValues(source)) {
+      const compactA = compactStem(a);
+      if (!compactA) continue;
+      for (const b of titleValues(target)) {
+        const compactB = compactStem(b);
+        if (!compactB) continue;
+        const includes = compactA.length >= 8 && compactB.length >= 8 && (compactA.includes(compactB) || compactB.includes(compactA));
+        const score = compactA === compactB || includes ? 1 : tokenScore(a, b);
+        best = Math.max(best, score);
+      }
+    }
+    return best;
   }
 
   function applyUser(){
@@ -327,7 +348,7 @@
       const row = document.createElement('div');
       const tags = paperTags(p);
       row.className = 'paper-row' + (state.active && state.active.id === p.id ? ' active' : '') + (isRead(p) ? ' read' : '') + (isStarred(p) ? ' starred' : '');
-      row.innerHTML = `<label class="paper-check"><input type="checkbox" ${state.selected.has(p.id) ? 'checked' : ''} aria-label="选择文献" /></label><button class="paper-open" title="${esc(displayTitle(p))}"><div class="paper-card-head"><div class="paper-title">${esc(displayTitle(p))}</div><span class="paper-star">${isStarred(p) ? '★' : '☆'}</span></div><div class="paper-meta">${isRead(p) ? '已读' : '未读'} · ${paperTranslation(p) ? '有译文' : '无译文'} · ${size(p.file.size)}${tags.length ? ' · ' + esc(tags.slice(0,2).join('/')) : ''}</div></button>`;
+      row.innerHTML = `<label class="paper-check"><input type="checkbox" ${state.selected.has(p.id) ? 'checked' : ''} aria-label="选择文献" /></label><button class="paper-open" title="${esc(shownTitle(p))}"><div class="paper-card-head"><div class="paper-title">${esc(shownTitle(p))}</div><span class="paper-star">${isStarred(p) ? '★' : '☆'}</span></div><div class="paper-meta">${isRead(p) ? '已读' : '未读'} · ${paperTranslation(p) ? '有译文' : '无译文'} · ${size(p.file.size)}${tags.length ? ' · ' + esc(tags.slice(0,2).join('/')) : ''}</div></button>`;
       row.querySelector('input').onchange = e => { e.target.checked ? state.selected.add(p.id) : state.selected.delete(p.id); updateLibraryTools(rows); };
       row.querySelector('.paper-open').onclick = () => openPaper(p);
       row.querySelector('.paper-star').onclick = e => { e.stopPropagation(); toggleStar(p); };
@@ -360,7 +381,7 @@
     }
     const p = state.active, meta = loadMeta(p), translation = paperTranslation(p);
     els.detail.classList.remove('hidden');
-    els.detailTitle.textContent = displayTitle(p);
+    els.detailTitle.textContent = shownTitle(p);
     const progress = meta.progress?.page ? `上次阅读到第 ${meta.progress.page} 页` : '暂无阅读进度';
     els.detailMeta.textContent = `${p.file.name} · ${translation ? '有译文' : '无译文'} · ${isRead(p) ? '已读' : '未读'} · 批注 ${noteCount(p)} · ${progress} · 最后阅读 ${fmtTime(meta.lastOpenedAt)}`;
     els.starBtn.textContent = meta.starred ? '★' : '☆';
@@ -394,15 +415,16 @@
   function bestTranslationFor(source, translations){
     const sameStem = translations.filter(t => t.path !== source.path && t.stem === source.stem);
     if (sameStem.length) return sameStem.sort((a, b) => (a.ext === '.pdf' ? 0 : 1) - (b.ext === '.pdf' ? 0 : 1))[0];
-    const sourceStem = compactStem(source.path);
+    const sourceStem = compactStem(source.pdfTitle || source.docTitle || source.title || source.path);
     const candidates = translations
       .filter(t => t.path !== source.path)
       .map(t => {
-        const compact = compactStem(t.path);
-        const score = compact === sourceStem || compact.includes(sourceStem) || sourceStem.includes(compact)
+        const compact = compactStem(t.pdfTitle || t.docTitle || t.path);
+        const titleScore = titleMatchScore(source, t);
+        const pathScore = compact === sourceStem || compact.includes(sourceStem) || sourceStem.includes(compact)
           ? 1
           : tokenScore(source.path, t.path);
-        return { item: t, compact, score };
+        return { item: t, compact, score: Math.max(titleScore, pathScore) };
       })
       .filter(t => t.score >= .55 || (t.compact.length >= 8 && (t.compact.includes(sourceStem) || sourceStem.includes(t.compact))))
       .sort((a, b) => b.score - a.score || Math.abs(a.compact.length - sourceStem.length) - Math.abs(b.compact.length - sourceStem.length));
@@ -473,11 +495,34 @@
     }
   }
 
+  async function extractTextTitle(file){
+    try {
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).slice(0, 40).map(line => line.replace(/^#+\s*/, '').replace(/<[^>]+>/g, '').trim()).filter(Boolean);
+      const title = lines.find(line => /[a-zA-Z\u4e00-\u9fa5]/.test(line) && !/^(摘要|abstract|关键词|keywords)$/i.test(line));
+      return cleanPdfTitle(title || '');
+    } catch {
+      return '';
+    }
+  }
+
+  function refreshTranslationMatches(){
+    const translations = (state.docs || []).filter(d => d.translationLike || d.ext !== '.pdf');
+    state.papers.forEach(p => {
+      p.autoTranslation = bestTranslationFor(p, translations);
+      p.translation = p.autoTranslation;
+    });
+  }
+
   async function enrichPaperTitles(token){
-    for (const p of [...state.papers]) {
+    for (const d of [...state.docs]) {
       if (token !== state.scanToken) return;
-      const title = await extractPdfTitle(p.file);
+      const title = d.ext === '.pdf' ? await extractPdfTitle(d.file) : await extractTextTitle(d.file);
       if (!title) continue;
+      if (d.ext === '.pdf') d.pdfTitle = title;
+      else d.docTitle = title;
+      const p = state.papers.find(x => x.id === d.id || x.path === d.path);
+      if (!p) continue;
       p.pdfTitle = title;
       if (isGeneratedPdfName(p.path)) {
         const meta = loadMeta(p);
@@ -485,9 +530,19 @@
       }
     }
     if (token !== state.scanToken) return;
+    refreshTranslationMatches();
     collapseDuplicatePapers();
     renderList();
     renderDetail();
+    if (state.active) {
+      const active = state.papers.find(p => p.id === state.active.id || p.path === state.active.path);
+      if (active) {
+        state.active = active;
+        const translation = paperTranslation(active);
+        els.tname.textContent = translation ? name(translation.path) : '未找到对应译文';
+        renderDoc(translation, els.trans, '未找到对应译文文件。');
+      }
+    }
   }
 
   async function cleanupHiddenReplacedFiles(files, replacedPaths, presentPaths){
@@ -802,7 +857,7 @@
     state.active = p; state.notes = loadNotes(p);
     updateMeta(p, { lastOpenedAt: new Date().toISOString() });
     const translation = paperTranslation(p);
-    els.title.textContent = displayTitle(p); els.meta.textContent = p.path + ' · ' + size(p.file.size);
+    els.title.textContent = shownTitle(p); els.meta.textContent = p.path + ' · ' + size(p.file.size);
     els.oname.textContent = p.file.name; els.tname.textContent = translation ? name(translation.path) : '未找到对应译文';
     els.read.disabled = els.save.disabled = els.add.disabled = false;
     updateRead(); renderList(); renderNotes(); renderDetail();
@@ -866,7 +921,7 @@
   function showAllNotes(){
     const rows = [];
     state.papers.forEach(p => (loadNotes(p).items || []).forEach((n, i) => rows.push({ p, n, i })));
-    els.allNotesList.innerHTML = rows.length ? rows.map(({p,n,i}) => `<button class="all-note-row" data-paper="${esc(p.id)}" data-index="${i}"><strong>${esc(displayTitle(p))}</strong><span>${esc(n.location || '未标注位置')} · ${esc(n.updatedAt || n.createdAt || '')}</span><p>${esc(n.body)}</p></button>`).join('') : '<div class="paper-meta empty-list">暂无批注。</div>';
+    els.allNotesList.innerHTML = rows.length ? rows.map(({p,n,i}) => `<button class="all-note-row" data-paper="${esc(p.id)}" data-index="${i}"><strong>${esc(shownTitle(p))}</strong><span>${esc(n.location || '未标注位置')} · ${esc(n.updatedAt || n.createdAt || '')}</span><p>${esc(n.body)}</p></button>`).join('') : '<div class="paper-meta empty-list">暂无批注。</div>';
     els.allNotesList.querySelectorAll('[data-paper]').forEach(btn => btn.onclick = async () => {
       const p = state.papers.find(x => x.id === btn.dataset.paper);
       if (!p) return;
@@ -883,7 +938,7 @@
     const next = prompt('显示名', displayTitle(state.active));
     if (next === null) return;
     updateMeta(state.active, { displayName: next.trim() });
-    els.title.textContent = displayTitle(state.active);
+    els.title.textContent = shownTitle(state.active);
     renderDetail(); renderList(); checkBackupReminder();
   }
 
