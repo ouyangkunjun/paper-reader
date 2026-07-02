@@ -43,6 +43,7 @@
     tagInput: $('#tagInput'), addTag: $('#addTagBtn'), starBtn: $('#starBtn'), renameBtn: $('#renameBtn'), replacePdf: $('#replacePdfBtn'),
     bindTranslation: $('#bindTranslationBtn'), clearTranslation: $('#clearTranslationBtn'), translationDialog: $('#translationDialog'),
     translationForm: $('#translationForm'), translationSelect: $('#translationSelect'), translationCancel: $('#translationCancelBtn'),
+    replaceDialog: $('#replaceDialog'), replaceCancel: $('#replaceCancelBtn'), replaceKeepName: $('#replaceKeepNameBtn'), replaceTitleName: $('#replaceTitleNameBtn'),
     backupBanner: $('#backupBanner'), backupExport: $('#backupExportBtn'), backupLater: $('#backupLaterBtn'),
     notes: $('#notesList'), drawBtn: $('#drawBtn'), drawToolbar: $('#drawToolbar'), drawColor: $('#drawColor'),
     drawSize: $('#drawSize'), clearDraw: $('#clearDrawBtn'), exportBtn: $('#exportBtn'), importBtn: $('#importBtn'),
@@ -862,6 +863,36 @@
     renderDetail(); renderList(); checkBackupReminder();
   }
 
+  function safePdfNameFromTitle(p){
+    const base = (displayTitle(p) || p.title || name(p.path))
+      .replace(/\.pdf$/i, '')
+      .replace(/[<>:"/\\|?*\x00-\x1F]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 150);
+    return (base || name(p.path).replace(/\.pdf$/i, '') || 'paper') + '.pdf';
+  }
+
+  function moveStoredPaperData(oldId, newId){
+    if (!oldId || !newId || oldId === newId) return;
+    ['read','notes','draw','meta'].forEach(kind => {
+      const oldKey = key(kind, oldId);
+      const value = localStorage.getItem(oldKey);
+      if (value && !localStorage.getItem(key(kind, newId))) localStorage.setItem(key(kind, newId), value);
+    });
+  }
+
+  function openReplaceDialog(){
+    if (!state.active) return;
+    els.replaceDialog.showModal();
+  }
+
+  function chooseReplaceMode(mode){
+    state.replacePdfNameMode = mode;
+    els.replaceDialog.close();
+    els.replacePdfInput.click();
+  }
+
   function openTranslationDialog(){
     if (!state.active) return;
     const choices = (state.docs || []).filter(d => d.path !== state.active.path && EXT.includes(d.ext));
@@ -889,8 +920,10 @@
   async function replaceActivePdf(file){
     if (!state.active || !file) return;
     if (ext(file.name) !== '.pdf') { toast('请选择 PDF 文件'); return; }
+    const oldId = state.active.id;
     const activePath = state.active.path;
     const activeName = state.active.file._entryName || state.active.file.name;
+    const targetName = state.replacePdfNameMode === 'title' ? safePdfNameFromTitle(state.active) : activeName;
     const parent = state.active.file._parentHandle;
     if (!parent?.getFileHandle) {
       toast('当前文件没有文件夹写入权限，请用“选择文件夹”重新授权后再替换');
@@ -901,26 +934,30 @@
         toast('没有获得写入权限');
         return;
       }
-      const target = await parent.getFileHandle(activeName, { create: false });
+      const target = await parent.getFileHandle(targetName, { create: state.replacePdfNameMode === 'title' });
       const writable = await target.createWritable();
       await writable.write(file);
       await writable.close();
-      toast('已替换原文 PDF');
+      if (targetName !== activeName && parent.removeEntry) {
+        try { await parent.removeEntry(activeName); } catch {}
+      }
+      toast(targetName === activeName ? '已替换原文 PDF' : '已替换并按标题重命名');
+      const nextPath = activePath.replace(/[^/\\]+$/, targetName);
       if (state.directoryHandle) {
         const files = await filesFromDirectoryHandle(state.directoryHandle);
         scan(files, '已刷新并载入替换后的 PDF');
-        const next = state.papers.find(p => p.path === activePath) || state.papers.find(p => p.file.name === activeName);
-        if (next) await openPaper(next);
+        const next = state.papers.find(p => p.path === nextPath) || state.papers.find(p => p.file.name === targetName) || state.papers.find(p => p.path === activePath);
+        if (next) { moveStoredPaperData(oldId, next.id); await openPaper(next); }
       } else {
         const replacement = await target.getFile();
-        try { Object.defineProperty(replacement, 'webkitRelativePath', { value: activePath, configurable: true }); }
-        catch { replacement._relativePath = activePath; }
-        replacement._entryName = activeName;
+        try { Object.defineProperty(replacement, 'webkitRelativePath', { value: nextPath, configurable: true }); }
+        catch { replacement._relativePath = nextPath; }
+        replacement._entryName = targetName;
         replacement._parentHandle = parent;
         state.files = state.files.map(f => pathOf(f) === activePath ? replacement : f);
         scan(state.files, '已载入替换后的 PDF');
-        const next = state.papers.find(p => p.path === activePath);
-        if (next) await openPaper(next);
+        const next = state.papers.find(p => p.path === nextPath);
+        if (next) { moveStoredPaperData(oldId, next.id); await openPaper(next); }
       }
     } catch (err) {
       toast('替换失败：请确认文件夹写入权限');
@@ -998,7 +1035,10 @@
   els.viewMode.onchange = e => setViewMode(e.target.value);
   els.starBtn.onclick = () => { if (state.active) toggleStar(state.active); };
   els.renameBtn.onclick = renameActive;
-  els.replacePdf.onclick = () => els.replacePdfInput.click();
+  els.replacePdf.onclick = openReplaceDialog;
+  els.replaceCancel.onclick = () => els.replaceDialog.close();
+  els.replaceKeepName.onclick = () => chooseReplaceMode('original');
+  els.replaceTitleName.onclick = () => chooseReplaceMode('title');
   els.replacePdfInput.onchange = e => { const file = e.target.files?.[0]; if (file) replaceActivePdf(file); e.target.value = ''; };
   els.addTag.onclick = addTag;
   els.tagPreset.onchange = () => { if (els.tagPreset.value) els.tagInput.value = els.tagPreset.value; };

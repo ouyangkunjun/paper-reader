@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Paper Reader</title>
-  <link rel="stylesheet" href="local_styles.css?v=20260702-replacepdf1" />
+  <link rel="stylesheet" href="local_styles.css?v=20260702-replacepdf2" />
 </head>
 <body>
   <aside class="library">
@@ -182,7 +182,19 @@
     </form>
   </dialog>
 
+  <dialog id="replaceDialog">
+    <form method="dialog">
+      <h3>替换原文</h3>
+      <p>选择替换后的 PDF 文件名。文件内容会来自你接下来选择的带批注 PDF。</p>
+      <div class="dialog-actions">
+        <button type="button" id="replaceCancelBtn">取消</button>
+        <button type="button" id="replaceKeepNameBtn">保留原文件名</button>
+        <button type="button" id="replaceTitleNameBtn">使用文献标题命名</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="pdf.min.js"></script>
-  <script src="local_app.js?v=20260702-replacepdf1"></script>
+  <script src="local_app.js?v=20260702-replacepdf2"></script>
 </body>
 </html>
