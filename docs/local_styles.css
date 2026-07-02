@@ -87,18 +87,6 @@ body.resizing .native-pdf-frame {
   border-radius: 6px;
   font: inherit;
 }
-.library-controls { position: relative; }
-.library-controls .search { padding-right: 38px; }
-.controls-close {
-  position: absolute;
-  top: 8px;
-  right: 14px;
-  z-index: 2;
-  min-width: 28px;
-  height: 28px;
-  padding: 2px 7px;
-  font-size: 16px;
-}
 .controls-hidden .library-controls { display: none; }
 .controls-hidden .paper-list { padding-top: 12px; }
 .library-tools {
