@@ -139,6 +139,32 @@
     setViewMode(localStorage.getItem(profileKey('viewMode')) || 'split', false);
     setCompactTop(localStorage.getItem(profileKey('compactTop')) === '1', false);
     state.openFolders = get(profileKey('openFolders'), {});
+    const view = get(profileKey('viewState'), {});
+    state.filter = view.filter || 'all';
+    state.tagFilter = view.tagFilter || '';
+    if (els.search) els.search.value = view.search || '';
+    if (els.filters) els.filters.querySelectorAll('button').forEach(btn => btn.classList.toggle('active', btn.dataset.filter === state.filter));
+  }
+
+  function saveViewState(){
+    set(profileKey('viewState'), {
+      filter: state.filter,
+      tagFilter: state.tagFilter,
+      search: els.search?.value || ''
+    });
+  }
+
+  function saveActivePaper(p){
+    if (!p) return;
+    set(profileKey('lastActivePaper'), { id: p.id, path: p.path, title: displayTitle(p) });
+  }
+
+  async function restoreLastActivePaper(){
+    if (state.active) return;
+    const last = get(profileKey('lastActivePaper'), null);
+    if (!last) return;
+    const paper = state.papers.find(p => p.path === last.path || p.id === last.id || displayTitle(p) === last.title);
+    if (paper) await openPaper(paper, { restoring: true });
   }
 
   function userIdFromName(value){
@@ -342,7 +368,7 @@
     state.directoryHandle = handle;
     els.refresh.disabled = false;
     if (await ensureFolderPermission(handle, false)) {
-      scan(await filesFromDirectoryHandle(handle), '已恢复上次文件夹');
+      scan(await filesFromDirectoryHandle(handle), '已恢复上次文件夹', { restoreLast: true });
     } else {
       toast('浏览器记得上次文件夹，点击“刷新”重新授权');
     }
@@ -809,7 +835,7 @@
     }
   }
 
-  function scan(files, message = '已读取本机文件夹'){
+  function scan(files, message = '已读取本机文件夹', options = {}){
     const token = ++state.scanToken;
     const deduped = dedupeFiles(files);
     const presentPaths = new Set(deduped.map(pathOf));
@@ -843,13 +869,18 @@
         autoTranslation: bestTranslationFor(d, translations),
         translation: bestTranslationFor(d, translations)
       }));
-    collapseDuplicatePapers().then(() => renderList()).catch(() => {});
+    collapseDuplicatePapers().then(async () => {
+      renderList();
+      if (options.restoreLast) await restoreLastActivePaper();
+    }).catch(() => {});
     state.active = null;
-    clear('已读取文件夹，请从左侧选择文献。');
+    clear(options.restoreLast ? '正在恢复上次阅读状态。' : '已读取文件夹，请从左侧选择文献。');
     renderList();
     toast(message);
     els.refresh.disabled = false;
-    enrichPaperTitles(token);
+    enrichPaperTitles(token).then(async () => {
+      if (options.restoreLast) await restoreLastActivePaper();
+    });
   }
 
   async function filesFromDirectoryHandle(handle){
@@ -878,7 +909,7 @@
       try {
         state.directoryHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
         await saveDirectoryHandle(state.directoryHandle);
-        scan(await filesFromDirectoryHandle(state.directoryHandle));
+        scan(await filesFromDirectoryHandle(state.directoryHandle), '已读取本机文件夹', { restoreLast: true });
         return;
       } catch (err) {
         if (err.name === 'AbortError') return;
@@ -1022,6 +1053,7 @@
     state.selectedFolders.clear();
     if (state.active && papers.some(p => p.id === state.active.id)) {
       state.active = null;
+      localStorage.removeItem(profileKey('lastActivePaper'));
       clear('已删除选中文献');
     }
     if (state.directoryHandle && removedFromDisk) await refreshFolder();
@@ -1036,7 +1068,7 @@
           toast('没有获得文件夹读取权限');
           return;
         }
-        scan(await filesFromDirectoryHandle(state.directoryHandle), '已刷新文献列表');
+        scan(await filesFromDirectoryHandle(state.directoryHandle), '已刷新文献列表', { restoreLast: true });
         toast('已刷新文献列表');
         return;
       } catch (err) {
@@ -1175,8 +1207,9 @@
     box.className = 'viewer'; box.innerHTML = '<div class="text-doc">' + (e === '.md' ? md(text, doc.path || pathOf(f)) : esc(text)) + '</div>';
   }
 
-  async function openPaper(p){
+  async function openPaper(p, options = {}){
     state.active = p; state.notes = loadNotes(p);
+    saveActivePaper(p);
     updateMeta(p, { lastOpenedAt: new Date().toISOString() });
     const translation = paperTranslation(p);
     els.title.textContent = shownTitle(p); els.meta.textContent = p.path + ' · ' + size(p.file.size);
@@ -1491,9 +1524,16 @@
     else scan(files);
     state.pendingFolderMode = null;
   };
-  els.search.oninput = renderList;
-  els.tagFilter.onchange = e => { state.tagFilter = e.target.value; renderList(); };
-  els.filters.onclick = e => { const b = e.target.closest('[data-filter]'); if (!b) return; state.filter = b.dataset.filter; els.filters.querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b)); renderList(); };
+  els.search.oninput = () => { saveViewState(); renderList(); };
+  els.tagFilter.onchange = e => { state.tagFilter = e.target.value; saveViewState(); renderList(); };
+  els.filters.onclick = e => {
+    const b = e.target.closest('[data-filter]');
+    if (!b) return;
+    state.filter = b.dataset.filter;
+    els.filters.querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
+    saveViewState();
+    renderList();
+  };
   els.read.onclick = () => { if (!state.active) return; setRead(state.active, !isRead(state.active)); updateRead(); renderList(); renderDetail(); checkBackupReminder(); };
   els.save.onclick = saveNotes; els.add.onclick = addNote;
   els.allNotesBtn.onclick = showAllNotes;
