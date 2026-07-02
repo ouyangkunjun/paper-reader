@@ -720,12 +720,22 @@
       for (let i = 1; i <= pdf.numPages; i++) {
         if (token !== state.pdfToken) return;
         const page = await pdf.getPage(i);
-        const vp = page.getViewport({ scale: Math.min(1.55, Math.max(1.05, (box.clientWidth - 44) / page.getViewport({ scale: 1 }).width)) });
+        const vp = page.getViewport({ scale: Math.min(1.75, Math.max(1.15, (box.clientWidth - 44) / page.getViewport({ scale: 1 }).width)) });
+        const outputScale = Math.min(2.4, Math.max(1, window.devicePixelRatio || 1));
         const wrap = document.createElement('div'); wrap.className = 'pdf-page-wrap'; wrap.dataset.page = i;
-        const c = document.createElement('canvas'); c.className = 'pdf-page'; c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
-        wrap.style.width = c.width + 'px'; wrap.style.height = c.height + 'px';
+        const c = document.createElement('canvas'); c.className = 'pdf-page';
+        c.width = Math.floor(vp.width * outputScale);
+        c.height = Math.floor(vp.height * outputScale);
+        c.style.width = Math.floor(vp.width) + 'px';
+        c.style.height = Math.floor(vp.height) + 'px';
+        wrap.style.width = Math.floor(vp.width) + 'px';
+        wrap.style.height = Math.floor(vp.height) + 'px';
         wrap.appendChild(c); box.appendChild(wrap);
-        await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+        await page.render({
+          canvasContext: c.getContext('2d'),
+          viewport: vp,
+          transform: outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null
+        }).promise;
         addDrawCanvas(wrap, i);
       }
       if (box === els.orig) restoreProgress();
