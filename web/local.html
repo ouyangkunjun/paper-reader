@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Paper Reader</title>
-  <link rel="stylesheet" href="local_styles.css?v=20260702-mimo1" />
+  <link rel="stylesheet" href="local_styles.css?v=20260702-aitranslate1" />
 </head>
 <body>
   <aside class="library">
@@ -25,6 +25,7 @@
     <input id="translationFileInput" type="file" accept=".pdf,.md,.txt,.html,.htm,.png,.jpg,.jpeg,.gif,.webp,.svg,.bmp,application/pdf,text/plain,text/markdown,text/html,image/*" hidden />
     <input id="replacePdfInput" type="file" accept=".pdf,application/pdf" hidden />
     <input id="importInput" type="file" accept="application/json,.json" hidden />
+    <input id="aiImageInput" type="file" accept="image/*" hidden />
     <div id="libraryControls" class="library-controls">
       <input id="searchInput" class="search" placeholder="搜索文件名" />
       <div id="libraryStats" class="library-stats"></div>
@@ -136,11 +137,26 @@
         <div id="notesList" class="notes-list"></div>
       </aside>
       <div class="splitter viewer-splitter" data-splitter="ai"></div>
-      <aside class="ai-panel">
+      <aside class="ai-panel" id="aiPanel">
         <div class="viewer-head"><strong>AI 问答</strong><span class="head-actions"><button id="hideAiBtn" class="icon-btn" title="隐藏 AI 栏" aria-label="隐藏 AI 栏">×</button></span></div>
         <textarea id="aiPromptInput" class="ai-prompt" placeholder="问这篇文献的问题，例如：总结核心创新点。"></textarea>
         <div class="ai-actions">
+          <button type="button" id="aiTranslateSelectionBtn">划词翻译</button>
           <button type="button" id="aiAskBtn">发送</button>
+        </div>
+        <div id="aiImageDrop" class="ai-image-drop" tabindex="0">
+          <div>
+            <strong>截图翻译</strong>
+            <span>粘贴截图、拖入图片，或选择图片文件</span>
+          </div>
+          <button type="button" id="aiImagePickBtn">选择截图</button>
+        </div>
+        <div id="aiImagePreviewWrap" class="ai-image-preview hidden">
+          <img id="aiImagePreview" alt="截图预览" />
+          <div class="ai-actions">
+            <button type="button" id="aiTranslateImageBtn">翻译截图</button>
+            <button type="button" id="aiClearImageBtn">清除截图</button>
+          </div>
         </div>
         <div id="aiAnswer" class="ai-answer">还没有提问。</div>
       </aside>
@@ -206,6 +222,6 @@
   </dialog>
 
   <script src="pdf.min.js"></script>
-  <script src="local_app.js?v=20260702-mimo1"></script>
+  <script src="local_app.js?v=20260702-aitranslate1"></script>
 </body>
 </html>

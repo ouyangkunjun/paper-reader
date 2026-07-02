@@ -50,10 +50,12 @@
     loginBtn: $('#loginBtn'), userInfo: $('#userInfo'), userName: $('#userName'), logoutBtn: $('#logoutBtn'),
     authDialog: $('#authDialog'), authForm: $('#authForm'), authName: $('#authName'), authPassword: $('#authPassword'),
     authError: $('#authError'), authCancel: $('#authCancelBtn'),
-    aiBtn: $('#aiBtn'), aiSettingsBtn: $('#aiSettingsBtn'), hideAi: $('#hideAiBtn'), aiSettingsDialog: $('#aiSettingsDialog'),
+    aiBtn: $('#aiBtn'), aiPanel: $('#aiPanel'), aiSettingsBtn: $('#aiSettingsBtn'), hideAi: $('#hideAiBtn'), aiSettingsDialog: $('#aiSettingsDialog'),
     aiSettingsForm: $('#aiSettingsForm'), aiSettingsClose: $('#aiSettingsCloseBtn'), aiKey: $('#aiKeyInput'),
     aiModel: $('#aiModelInput'), aiBase: $('#aiBaseInput'), aiPrompt: $('#aiPromptInput'), aiAnswer: $('#aiAnswer'),
-    aiSave: $('#aiSaveBtn'), aiForget: $('#aiForgetBtn'), aiAsk: $('#aiAskBtn')
+    aiSave: $('#aiSaveBtn'), aiForget: $('#aiForgetBtn'), aiAsk: $('#aiAskBtn'), aiTranslateSelection: $('#aiTranslateSelectionBtn'),
+    aiImageInput: $('#aiImageInput'), aiImagePick: $('#aiImagePickBtn'), aiImageDrop: $('#aiImageDrop'), aiImagePreviewWrap: $('#aiImagePreviewWrap'),
+    aiImagePreview: $('#aiImagePreview'), aiTranslateImage: $('#aiTranslateImageBtn'), aiClearImage: $('#aiClearImageBtn')
   };
 
   if (window.pdfjsLib) window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js';
@@ -161,6 +163,7 @@
   }
 
   const DEFAULT_AI_MODEL = 'mimo-v2.5-pro';
+  const DEFAULT_AI_IMAGE_MODEL = 'mimo-v2.5';
   const DEFAULT_AI_BASE = 'https://api.xiaomimimo.com/v1';
 
   function loadAiSettings(){
@@ -209,6 +212,10 @@
     return headers;
   }
 
+  function aiModelFor(endpoint, requestedModel, imageData){
+    return imageData && isMimoEndpoint(endpoint) ? DEFAULT_AI_IMAGE_MODEL : requestedModel;
+  }
+
   function visibleText(el){
     return (el?.innerText || el?.textContent || '').replace(/\s+/g, ' ').trim();
   }
@@ -237,31 +244,38 @@
     return payload.choices?.[0]?.message?.content || JSON.stringify(payload, null, 2);
   }
 
-  async function askAi(){
+  function aiUserContent(prompt, imageData, responsesApi){
+    if (!imageData) return prompt;
+    return responsesApi
+      ? [{ type: 'input_text', text: prompt }, { type: 'input_image', image_url: imageData }]
+      : [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: imageData } }];
+  }
+
+  async function runAiTask({ prompt, system, imageData, busyText, buttons = [] }){
     const settings = currentAiSettings();
     const keyValue = settings.key;
-    const model = settings.model;
     const endpoint = normalizeAiEndpoint(settings.baseUrl);
-    const question = els.aiPrompt.value.trim();
+    const model = aiModelFor(endpoint, settings.model, imageData);
     if (!keyValue) { els.aiAnswer.textContent = '请先在顶部“AI 设置”里填写并保存 API Key。'; return; }
-    if (!question) { els.aiAnswer.textContent = '请先输入问题。'; return; }
-    els.aiAsk.disabled = true;
-    els.aiAnswer.textContent = '正在请求 AI...';
+    if (!prompt) { els.aiAnswer.textContent = '请先输入内容。'; return; }
+    buttons.forEach(btn => { if (btn) btn.disabled = true; });
+    els.aiAnswer.textContent = busyText || '正在请求 AI...';
     try {
+      const responsesApi = !isChatEndpoint(endpoint);
       const body = isChatEndpoint(endpoint)
         ? {
             model,
             messages: [
-              { role: 'system', content: '你是文献阅读助手。请基于用户提供的文献信息回答，无法判断时明确说明。' },
-              { role: 'user', content: `${aiContextText()}\n\n问题：${question}` }
+              { role: 'system', content: system || '你是文献阅读助手。请基于用户提供的文献信息回答，无法判断时明确说明。' },
+              { role: 'user', content: aiUserContent(prompt, imageData, responsesApi) }
             ],
             max_completion_tokens: 2048
           }
         : {
             model,
             input: [
-              { role: 'system', content: '你是文献阅读助手。请基于用户提供的文献信息回答，无法判断时明确说明。' },
-              { role: 'user', content: `${aiContextText()}\n\n问题：${question}` }
+              { role: 'system', content: system || '你是文献阅读助手。请基于用户提供的文献信息回答，无法判断时明确说明。' },
+              { role: 'user', content: aiUserContent(prompt, imageData, responsesApi) }
             ]
           };
       const res = await fetch(endpoint, {
@@ -273,10 +287,90 @@
       if (!res.ok) throw new Error(payload.error?.message || `请求失败：${res.status}`);
       els.aiAnswer.textContent = responseText(payload);
     } catch (err) {
-      els.aiAnswer.textContent = `AI 请求失败：${err.message}\n\n如果你用的是小米 MiMo，请确认 API Key、模型名、接口地址 ${DEFAULT_AI_BASE} 和浏览器网络可用；如果浏览器拦截跨域请求，需要改用本地后端版。`;
+      els.aiAnswer.textContent = `AI 请求失败：${err.message}\n\n如果你用的是小米 MiMo，请确认 API Key、模型名、接口地址 ${DEFAULT_AI_BASE} 和浏览器网络可用；截图翻译会自动使用 ${DEFAULT_AI_IMAGE_MODEL}。如果浏览器拦截跨域请求，需要改用本地后端版。`;
     } finally {
-      els.aiAsk.disabled = false;
+      buttons.forEach(btn => { if (btn) btn.disabled = false; });
     }
+  }
+
+  async function askAi(){
+    const question = els.aiPrompt.value.trim();
+    if (!question) { els.aiAnswer.textContent = '请先输入问题。'; return; }
+    await runAiTask({
+      prompt: `${aiContextText()}\n\n问题：${question}`,
+      busyText: '正在请求 AI...',
+      buttons: [els.aiAsk]
+    });
+  }
+
+  async function selectedOrClipboardText(){
+    const selected = window.getSelection?.().toString().replace(/\s+/g, ' ').trim();
+    if (selected) return selected;
+    try {
+      const clip = await navigator.clipboard?.readText?.();
+      return (clip || '').replace(/\s+/g, ' ').trim();
+    } catch {
+      return '';
+    }
+  }
+
+  async function translateSelection(){
+    setAiHidden(false);
+    const text = await selectedOrClipboardText();
+    if (!text) {
+      els.aiAnswer.textContent = '没有读到划选文字。原文 PDF 里如果读不到，请先复制文字，再点“划词翻译”。';
+      return;
+    }
+    await runAiTask({
+      prompt: `请把下面这段学术文本翻译成准确、自然的中文。保留专业术语、公式和变量，不要额外解释。\n\n${text.slice(0, 12000)}`,
+      system: '你是专业学术翻译助手，只输出译文。',
+      busyText: '正在翻译划选文字...',
+      buttons: [els.aiTranslateSelection]
+    });
+  }
+
+  function setAiImage(dataUrl){
+    state.aiImageData = dataUrl || '';
+    els.aiImagePreviewWrap.classList.toggle('hidden', !state.aiImageData);
+    els.aiImageDrop.classList.toggle('has-image', !!state.aiImageData);
+    if (state.aiImageData) els.aiImagePreview.src = state.aiImageData;
+    else els.aiImagePreview.removeAttribute('src');
+  }
+
+  function readImageFile(file){
+    return new Promise((resolve, reject) => {
+      if (!file || !file.type.startsWith('image/')) return reject(new Error('请选择图片文件'));
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error || new Error('无法读取图片'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function loadAiImage(file){
+    try {
+      setAiImage(await readImageFile(file));
+      setAiHidden(false);
+      toast('截图已加入 AI 栏');
+    } catch (err) {
+      toast(err.message || '无法读取截图');
+    }
+  }
+
+  async function translateImage(){
+    setAiHidden(false);
+    if (!state.aiImageData) {
+      els.aiAnswer.textContent = '请先粘贴截图、拖入图片，或点“选择截图”。';
+      return;
+    }
+    const extra = els.aiPrompt.value.trim();
+    await runAiTask({
+      prompt: `请识别这张截图里的文字、公式、图注或表格内容，并翻译成中文。尽量保留原有层级、编号、变量和单位。${extra ? '\n\n额外要求：' + extra : ''}`,
+      system: '你是专业学术截图翻译助手，先识别截图内容，再给出中文翻译。',
+      imageData: state.aiImageData,
+      busyText: '正在翻译截图...',
+      buttons: [els.aiTranslateImage]
+    });
   }
 
   function saveActivePaper(p){
@@ -1716,6 +1810,32 @@
     els.aiAnswer.textContent = '已清除当前浏览器保存的 API Key。';
   };
   els.aiAsk.onclick = askAi;
+  els.aiTranslateSelection.onclick = translateSelection;
+  els.aiImagePick.onclick = () => els.aiImageInput.click();
+  els.aiImageInput.onchange = e => { const file = e.target.files?.[0]; if (file) loadAiImage(file); e.target.value = ''; };
+  els.aiTranslateImage.onclick = translateImage;
+  els.aiClearImage.onclick = () => { setAiImage(''); els.aiAnswer.textContent = '截图已清除。'; };
+  els.aiImageDrop.addEventListener('click', e => {
+    if (e.target === els.aiImageDrop || e.target.closest('div')) els.aiImageInput.click();
+  });
+  els.aiImageDrop.addEventListener('dragover', e => {
+    e.preventDefault();
+    els.aiImageDrop.classList.add('dragover');
+  });
+  els.aiImageDrop.addEventListener('dragleave', () => els.aiImageDrop.classList.remove('dragover'));
+  els.aiImageDrop.addEventListener('drop', e => {
+    e.preventDefault();
+    els.aiImageDrop.classList.remove('dragover');
+    const file = [...(e.dataTransfer?.files || [])].find(f => f.type.startsWith('image/'));
+    if (file) loadAiImage(file);
+  });
+  els.aiPanel.addEventListener('paste', e => {
+    const file = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith('image/'));
+    if (file) {
+      e.preventDefault();
+      loadAiImage(file);
+    }
+  });
   els.loginBtn.onclick = () => { els.authError.textContent = ''; els.authName.value = state.user?.name || ''; els.authPassword.value = ''; els.authDialog.showModal(); };
   els.logoutBtn.onclick = logout;
   els.authCancel.onclick = () => els.authDialog.close();
