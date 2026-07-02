@@ -50,7 +50,8 @@
     loginBtn: $('#loginBtn'), userInfo: $('#userInfo'), userName: $('#userName'), logoutBtn: $('#logoutBtn'),
     authDialog: $('#authDialog'), authForm: $('#authForm'), authName: $('#authName'), authPassword: $('#authPassword'),
     authError: $('#authError'), authCancel: $('#authCancelBtn'),
-    aiBtn: $('#aiBtn'), hideAi: $('#hideAiBtn'), aiKey: $('#aiKeyInput'),
+    aiBtn: $('#aiBtn'), aiSettingsBtn: $('#aiSettingsBtn'), hideAi: $('#hideAiBtn'), aiSettingsDialog: $('#aiSettingsDialog'),
+    aiSettingsForm: $('#aiSettingsForm'), aiSettingsClose: $('#aiSettingsCloseBtn'), aiKey: $('#aiKeyInput'),
     aiModel: $('#aiModelInput'), aiBase: $('#aiBaseInput'), aiPrompt: $('#aiPromptInput'), aiAnswer: $('#aiAnswer'),
     aiSave: $('#aiSaveBtn'), aiForget: $('#aiForgetBtn'), aiAsk: $('#aiAskBtn')
   };
@@ -175,6 +176,15 @@
     toast('AI 设置已保存');
   }
 
+  function currentAiSettings(){
+    const settings = get(profileKey('aiSettings'), {});
+    return {
+      key: settings.key || '',
+      model: settings.model || 'gpt-4.1-mini',
+      baseUrl: settings.baseUrl || 'https://api.openai.com/v1/responses'
+    };
+  }
+
   function visibleText(el){
     return (el?.innerText || el?.textContent || '').replace(/\s+/g, ' ').trim();
   }
@@ -204,13 +214,13 @@
   }
 
   async function askAi(){
-    const keyValue = els.aiKey.value.trim();
-    const model = els.aiModel.value.trim() || 'gpt-4.1-mini';
-    const baseUrl = els.aiBase.value.trim() || 'https://api.openai.com/v1/responses';
+    const settings = currentAiSettings();
+    const keyValue = settings.key;
+    const model = settings.model;
+    const baseUrl = settings.baseUrl;
     const question = els.aiPrompt.value.trim();
-    if (!keyValue) { els.aiAnswer.textContent = '请先填写 API Key。'; return; }
+    if (!keyValue) { els.aiAnswer.textContent = '请先在顶部“AI 设置”里填写并保存 API Key。'; return; }
     if (!question) { els.aiAnswer.textContent = '请先输入问题。'; return; }
-    saveAiSettings();
     els.aiAsk.disabled = true;
     els.aiAnswer.textContent = '正在请求 AI...';
     try {
@@ -1356,7 +1366,6 @@
     state.aiHidden = hidden;
     document.body.classList.toggle('ai-hidden', hidden);
     els.aiBtn.textContent = hidden ? '显示 AI 栏' : '隐藏 AI 栏';
-    if (!hidden) loadAiSettings();
     if (persist) localStorage.setItem(profileKey('aiHidden'), hidden ? '1' : '0');
   }
 
@@ -1674,6 +1683,9 @@
   els.exportBtn.onclick = exportData; els.importBtn.onclick = () => els.importInput.click();
   els.importInput.onchange = e => { const f = e.target.files?.[0]; if (f) importData(f).catch(err => alert(err.message)); e.target.value = ''; };
   els.aiBtn.onclick = () => setAiHidden(!state.aiHidden);
+  els.aiSettingsBtn.onclick = () => { loadAiSettings(); els.aiSettingsDialog.showModal(); };
+  els.aiSettingsClose.onclick = () => els.aiSettingsDialog.close();
+  els.aiSettingsForm.addEventListener('submit', e => { e.preventDefault(); saveAiSettings(); els.aiSettingsDialog.close(); });
   els.hideAi.onclick = () => setAiHidden(true);
   els.aiSave.onclick = saveAiSettings;
   els.aiForget.onclick = () => {

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Paper Reader</title>
-  <link rel="stylesheet" href="local_styles.css?v=20260702-aisidebar1" />
+  <link rel="stylesheet" href="local_styles.css?v=20260702-aisettings1" />
 </head>
 <body>
   <aside class="library">
@@ -77,7 +77,8 @@
         </select>
         <button id="exportBtn">导出数据</button>
         <button id="importBtn">导入数据</button>
-        <button id="aiBtn">AI 问答</button>
+        <button id="aiSettingsBtn">AI 设置</button>
+        <button id="aiBtn">显示 AI 栏</button>
         <button id="showLibraryBtn" class="restore-action hidden">显示文献栏</button>
         <button id="showNotesBtn" class="restore-action hidden">显示批注栏</button>
         <button id="loginBtn">登录</button>
@@ -136,15 +137,9 @@
       </aside>
       <div class="splitter viewer-splitter" data-splitter="ai"></div>
       <aside class="ai-panel">
-        <div class="viewer-head"><strong>AI 问答</strong><span class="head-actions"><button id="aiSaveBtn">保存</button><button id="hideAiBtn" class="icon-btn" title="隐藏 AI 栏" aria-label="隐藏 AI 栏">×</button></span></div>
-        <div class="ai-config ai-side-config">
-          <label class="field-label">API Key <input id="aiKeyInput" type="password" autocomplete="off" placeholder="sk-..." /></label>
-          <label class="field-label">模型 <input id="aiModelInput" placeholder="gpt-4.1-mini" /></label>
-          <label class="field-label wide">接口地址 <input id="aiBaseInput" placeholder="https://api.openai.com/v1/responses" /></label>
-        </div>
+        <div class="viewer-head"><strong>AI 问答</strong><span class="head-actions"><button id="hideAiBtn" class="icon-btn" title="隐藏 AI 栏" aria-label="隐藏 AI 栏">×</button></span></div>
         <textarea id="aiPromptInput" class="ai-prompt" placeholder="问这篇文献的问题，例如：总结核心创新点。"></textarea>
         <div class="ai-actions">
-          <button type="button" id="aiForgetBtn">清除 Key</button>
           <button type="button" id="aiAskBtn">发送</button>
         </div>
         <div id="aiAnswer" class="ai-answer">还没有提问。</div>
@@ -191,7 +186,26 @@
     </form>
   </dialog>
 
+  <dialog id="aiSettingsDialog" class="wide-dialog">
+    <form id="aiSettingsForm" method="dialog">
+      <div class="dialog-head">
+        <h3>AI 设置</h3>
+        <button type="button" id="aiSettingsCloseBtn">关闭</button>
+      </div>
+      <p>API Key 只保存在当前浏览器。右侧 AI 栏提问时会使用这里保存的接口。</p>
+      <div class="ai-config">
+        <label class="field-label">API Key <input id="aiKeyInput" type="password" autocomplete="off" placeholder="sk-..." /></label>
+        <label class="field-label">模型 <input id="aiModelInput" placeholder="gpt-4.1-mini" /></label>
+        <label class="field-label wide">接口地址 <input id="aiBaseInput" placeholder="https://api.openai.com/v1/responses" /></label>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" id="aiForgetBtn">清除 Key</button>
+        <button type="submit" id="aiSaveBtn">保存设置</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="pdf.min.js"></script>
-  <script src="local_app.js?v=20260702-aisidebar1"></script>
+  <script src="local_app.js?v=20260702-aisettings1"></script>
 </body>
 </html>
