@@ -238,7 +238,17 @@ body.resizing .native-pdf-frame {
   color: var(--accent);
   font-size: 12px;
 }
-.toolbar { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+}
+#compactTopBtn {
+  min-width: 72px;
+  flex: 0 0 auto;
+}
 .icon-btn { min-width: 34px; padding: 7px 9px; font-size: 18px; line-height: 1; }
 .user-info {
   display: inline-flex;
@@ -323,9 +333,10 @@ body.compact-top .topbar h2 {
 body.compact-top .toolbar {
   flex-wrap: nowrap;
   overflow-x: auto;
-  justify-content: flex-end;
-  max-width: 56vw;
+  justify-content: flex-start;
+  max-width: min(72vw, 760px);
   padding-bottom: 2px;
+  scrollbar-width: thin;
 }
 body.compact-top .toolbar button,
 body.compact-top .toolbar select {
