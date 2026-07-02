@@ -1079,7 +1079,17 @@
     const activeName = state.active.file._entryName || state.active.file.name;
     const preservedTitle = displayTitle(state.active);
     const targetName = safePdfNameFromTitle(state.active);
+    const nextPath = activePath.replace(/[^/\\]+$/, targetName);
     const parent = state.active.file._parentHandle;
+    const sourceTemp = state.files.find(f =>
+      f !== state.active.file &&
+      pathOf(f) !== activePath &&
+      (f._entryName || f.name) !== targetName &&
+      f.name === file.name &&
+      f.size === file.size &&
+      f.lastModified === file.lastModified &&
+      f._parentHandle?.removeEntry
+    );
     if (!parent?.getFileHandle) {
       toast('当前文件没有文件夹写入权限，请用“选择文件夹”重新授权后再替换');
       return;
@@ -1097,8 +1107,15 @@
         try { await parent.removeEntry(activeName); }
         catch { toast('已替换；旧 PDF 因浏览器权限限制会在列表中隐藏'); }
       }
+      if (sourceTemp) {
+        try {
+          if (await ensureFolderPermission(sourceTemp._parentHandle, true, 'readwrite')) {
+            await sourceTemp._parentHandle.removeEntry(sourceTemp._entryName || sourceTemp.name);
+            rememberReplacedPath(pathOf(sourceTemp), nextPath);
+          }
+        } catch {}
+      }
       toast(targetName === activeName ? '已替换原文 PDF' : '已替换并按标题重命名');
-      const nextPath = activePath.replace(/[^/\\]+$/, targetName);
       rememberReplacedPath(activePath, nextPath);
       if (state.directoryHandle) {
         const files = await filesFromDirectoryHandle(state.directoryHandle);
