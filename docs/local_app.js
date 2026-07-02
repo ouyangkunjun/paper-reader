@@ -346,28 +346,45 @@
   }
 
   function handleKey(){ return profileId() + ':directory'; }
+  function sharedHandleKey(){ return 'last:directory'; }
   async function saveDirectoryHandle(handle){
     if (!window.indexedDB || !handle) return;
-    try { await handleStore('readwrite', store => store.put(handle, handleKey())); } catch {}
+    try {
+      await handleStore('readwrite', store => {
+        store.put(handle, handleKey());
+        return store.put(handle, sharedHandleKey());
+      });
+    } catch {}
   }
   async function loadDirectoryHandle(){
     if (!window.indexedDB) return null;
-    try { return await handleStore('readonly', store => store.get(handleKey())); } catch { return null; }
+    try {
+      return await handleStore('readonly', store => store.get(handleKey()))
+        || await handleStore('readonly', store => store.get(sharedHandleKey()))
+        || await handleStore('readonly', store => store.get('guest:directory'));
+    } catch { return null; }
   }
   async function ensureFolderPermission(handle, ask, mode = 'read'){
     if (!handle?.queryPermission) return true;
     const opts = { mode };
-    if (await handle.queryPermission(opts) === 'granted') return true;
-    if (ask && handle.requestPermission) return await handle.requestPermission(opts) === 'granted';
-    return false;
+    try {
+      if (await handle.queryPermission(opts) === 'granted') return true;
+      if (ask && handle.requestPermission) return await handle.requestPermission(opts) === 'granted';
+      return false;
+    } catch {
+      return false;
+    }
   }
 
   async function restoreSavedFolder(){
     const handle = await loadDirectoryHandle();
-    if (!handle) return;
+    if (!handle) {
+      toast('还没有保存过本机文件夹，请先选择一次文件夹');
+      return;
+    }
     state.directoryHandle = handle;
     els.refresh.disabled = false;
-    if (await ensureFolderPermission(handle, false)) {
+    if (await ensureFolderPermission(handle, false, 'readwrite') || await ensureFolderPermission(handle, true, 'readwrite')) {
       scan(await filesFromDirectoryHandle(handle), '已恢复上次文件夹', { restoreLast: true });
     } else {
       toast('浏览器记得上次文件夹，点击“刷新”重新授权');
