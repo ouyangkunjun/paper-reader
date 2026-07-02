@@ -26,7 +26,6 @@
     viewMode: 'split',
     progressTimer: null,
     scanToken: 0,
-    altSync: false,
   };
   const $ = (s) => document.querySelector(s);
   const els = {
@@ -1068,41 +1067,6 @@
     state.progressTimer = setTimeout(saveProgress, 250);
   }
 
-  function setAltSync(active){
-    state.altSync = active;
-    document.body.classList.toggle('alt-sync-scroll', active);
-  }
-
-  function scrollViewer(box, deltaY){
-    if (!box) return;
-    if (box.classList.contains('native-pdf-viewer')) {
-      const frame = box.querySelector('iframe');
-      try { frame?.contentWindow?.scrollBy(0, deltaY); } catch {}
-      return;
-    }
-    box.scrollTop += deltaY;
-  }
-
-  function syncAltWheel(e){
-    if (!e.altKey) return;
-    const source = e.target.closest?.('#originalViewer, #translationViewer');
-    if (!source) return;
-    const target = source === els.orig ? els.trans : els.orig;
-    if (!target) return;
-    e.preventDefault();
-    const before = source.scrollTop;
-    const sourceMax = Math.max(0, source.scrollHeight - source.clientHeight);
-    const targetMax = Math.max(0, target.scrollHeight - target.clientHeight);
-    scrollViewer(source, e.deltaY);
-    if (sourceMax > 0 && targetMax > 0 && !target.classList.contains('native-pdf-viewer')) {
-      target.scrollTop = Math.max(0, Math.min(targetMax, (source.scrollTop / sourceMax) * targetMax));
-    } else {
-      const actualDelta = source.scrollTop !== before ? source.scrollTop - before : e.deltaY;
-      scrollViewer(target, actualDelta);
-    }
-    queueProgressSave();
-  }
-
   function restoreProgress(){
     if (!state.active) return;
     const progress = loadMeta(state.active).progress;
@@ -1522,10 +1486,6 @@
   els.backupExport.onclick = exportData;
   els.backupLater.onclick = () => { localStorage.setItem(profileKey('backupLaterAt'), new Date().toISOString()); checkBackupReminder(); };
   els.orig.addEventListener('scroll', queueProgressSave);
-  document.addEventListener('wheel', syncAltWheel, { capture: true, passive: false });
-  window.addEventListener('keydown', e => { if (e.key === 'Alt') setAltSync(true); });
-  window.addEventListener('keyup', e => { if (e.key === 'Alt') setAltSync(false); });
-  window.addEventListener('blur', () => setAltSync(false));
   els.exportBtn.onclick = exportData; els.importBtn.onclick = () => els.importInput.click();
   els.importInput.onchange = e => { const f = e.target.files?.[0]; if (f) importData(f).catch(err => alert(err.message)); e.target.value = ''; };
   els.loginBtn.onclick = () => { els.authError.textContent = ''; els.authName.value = state.user?.name || ''; els.authPassword.value = ''; els.authDialog.showModal(); };
