@@ -131,9 +131,36 @@ body.resizing .native-pdf-frame {
 .paper-list {
   overflow: auto;
   padding: 12px;
-  display: grid;
-  grid-auto-rows: 96px;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
+}
+.folder-row {
+  height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f8fbff;
+  display: grid;
+  grid-template-columns: 18px minmax(0,1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  text-align: left;
+  font-weight: 700;
+}
+.folder-row.open {
+  border-color: #b8c8e0;
+  background: #eef5ff;
+}
+.folder-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-count {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
 }
 .paper-row {
   width: 100%;
@@ -264,23 +291,28 @@ body.resizing .native-pdf-frame {
   padding: 10px 18px;
 }
 .detail-main {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, auto);
+  align-items: start;
   gap: 12px;
 }
+.detail-main > div:first-child { min-width: 0; }
 .detail-title-row { display: flex; align-items: center; gap: 8px; }
 .detail-title-row h3 {
   margin: 0;
   font-size: 16px;
   line-height: 1.35;
-  max-width: 68vw;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .detail-panel p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
 .detail-actions, .detail-tags, .tag-list { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.detail-actions {
+  justify-content: flex-end;
+  max-width: 360px;
+}
 .detail-actions button, .detail-tags button { padding: 5px 8px; font-size: 12px; }
 .detail-tags { margin-top: 8px; }
 .detail-tags input, .detail-tags select { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: inherit; font-size: 12px; }
@@ -468,6 +500,8 @@ dialog p { margin: 0 0 16px; color: var(--muted); line-height: 1.6; }
   body.notes-hidden .viewer-grid { grid-template-columns: minmax(220px,1fr) 6px minmax(220px,1fr); }
   .topbar { align-items: flex-start; flex-direction: column; }
   .toolbar { justify-content: flex-start; }
+  .detail-main { grid-template-columns: minmax(0,1fr); }
+  .detail-actions { justify-content: flex-start; max-width: none; }
 }
 @media(max-width:820px) {
   body, body.library-hidden { display: block; }

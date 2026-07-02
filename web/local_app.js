@@ -19,6 +19,7 @@
     compactTop: false,
     user: null,
     selected: new Set(),
+    openFolders: {},
     tagFilter: '',
     viewMode: 'split',
     progressTimer: null,
@@ -125,6 +126,7 @@
     setNotesHidden(localStorage.getItem(profileKey('notesHidden')) !== '0', false);
     setViewMode(localStorage.getItem(profileKey('viewMode')) || 'split', false);
     setCompactTop(localStorage.getItem(profileKey('compactTop')) === '1', false);
+    state.openFolders = get(profileKey('openFolders'), {});
   }
 
   function userIdFromName(value){
@@ -384,6 +386,22 @@
     els.tagFilter.value = current;
   }
 
+  function folderOfPaper(p){
+    const parts = p.path.split(/[\\/]/).filter(Boolean);
+    return parts.length > 1 ? parts[0] : '根目录';
+  }
+
+  function folderKey(name){ return 'folder:' + name; }
+
+  function isFolderOpen(name){
+    return name === '根目录' ? state.openFolders[folderKey(name)] !== false : !!state.openFolders[folderKey(name)];
+  }
+
+  function setFolderOpen(name, open){
+    state.openFolders[folderKey(name)] = open;
+    set(profileKey('openFolders'), state.openFolders);
+  }
+
   function renderList(){
     els.list.innerHTML = '';
     updateStats();
@@ -395,7 +413,23 @@
       els.list.innerHTML = '<div class="paper-meta empty-list">点击“选择文件夹”读取本机 PDF。</div>';
       return;
     }
+    const groups = new Map();
     rows.forEach(p => {
+      const folder = folderOfPaper(p);
+      if (!groups.has(folder)) groups.set(folder, []);
+      groups.get(folder).push(p);
+    });
+    [...groups.entries()]
+      .sort((a, b) => (a[0] === '根目录' ? -1 : b[0] === '根目录' ? 1 : a[0].localeCompare(b[0], 'zh-Hans-CN')))
+      .forEach(([folder, papers]) => {
+        const open = isFolderOpen(folder);
+        const folderRow = document.createElement('button');
+        folderRow.className = 'folder-row' + (open ? ' open' : '');
+        folderRow.innerHTML = `<span class="folder-caret">${open ? '▾' : '▸'}</span><span class="folder-name">${esc(folder)}</span><span class="folder-count">${papers.length}</span>`;
+        folderRow.onclick = () => { setFolderOpen(folder, !open); renderList(); };
+        els.list.appendChild(folderRow);
+        if (!open) return;
+        papers.forEach(p => {
       const row = document.createElement('div');
       const tags = paperTags(p);
       row.className = 'paper-row' + (state.active && state.active.id === p.id ? ' active' : '') + (isRead(p) ? ' read' : '') + (isStarred(p) ? ' starred' : '');
@@ -404,6 +438,7 @@
       row.querySelector('.paper-open').onclick = () => openPaper(p);
       row.querySelector('.paper-star').onclick = e => { e.stopPropagation(); toggleStar(p); };
       els.list.appendChild(row);
+        });
     });
   }
 
