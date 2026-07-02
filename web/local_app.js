@@ -17,6 +17,7 @@
     libraryHidden: false,
     controlsHidden: false,
     notesHidden: false,
+    aiHidden: true,
     compactTop: false,
     user: null,
     selected: new Set(),
@@ -49,7 +50,7 @@
     loginBtn: $('#loginBtn'), userInfo: $('#userInfo'), userName: $('#userName'), logoutBtn: $('#logoutBtn'),
     authDialog: $('#authDialog'), authForm: $('#authForm'), authName: $('#authName'), authPassword: $('#authPassword'),
     authError: $('#authError'), authCancel: $('#authCancelBtn'),
-    aiBtn: $('#aiBtn'), aiDialog: $('#aiDialog'), aiForm: $('#aiForm'), aiClose: $('#aiCloseBtn'), aiKey: $('#aiKeyInput'),
+    aiBtn: $('#aiBtn'), hideAi: $('#hideAiBtn'), aiKey: $('#aiKeyInput'),
     aiModel: $('#aiModelInput'), aiBase: $('#aiBaseInput'), aiPrompt: $('#aiPromptInput'), aiAnswer: $('#aiAnswer'),
     aiSave: $('#aiSaveBtn'), aiForget: $('#aiForgetBtn'), aiAsk: $('#aiAskBtn')
   };
@@ -132,13 +133,14 @@
   function applyCss(name, value){ document.documentElement.style.setProperty(name, value); }
   function persistCss(name){ localStorage.setItem(profileKey('layout.' + name), getComputedStyle(document.documentElement).getPropertyValue(name).trim()); }
   function loadLayout(){
-    ['--library-width','--original-width','--translation-width','--notes-width'].forEach(name => {
+    ['--library-width','--original-width','--translation-width','--notes-width','--ai-width'].forEach(name => {
       const value = localStorage.getItem(profileKey('layout.' + name));
       if (value) document.documentElement.style.setProperty(name, value);
     });
     setLibraryHidden(localStorage.getItem(profileKey('libraryHidden')) === '1', false);
     setControlsHidden(localStorage.getItem(profileKey('controlsHidden')) === '1', false);
     setNotesHidden(localStorage.getItem(profileKey('notesHidden')) !== '0', false);
+    setAiHidden(localStorage.getItem(profileKey('aiHidden')) !== '0', false);
     setViewMode(localStorage.getItem(profileKey('viewMode')) || 'split', false);
     setCompactTop(localStorage.getItem(profileKey('compactTop')) === '1', false);
     state.openFolders = get(profileKey('openFolders'), {});
@@ -1350,6 +1352,14 @@
     if (persist) localStorage.setItem(profileKey('notesHidden'), hidden ? '1' : '0');
   }
 
+  function setAiHidden(hidden, persist = true){
+    state.aiHidden = hidden;
+    document.body.classList.toggle('ai-hidden', hidden);
+    els.aiBtn.textContent = hidden ? '显示 AI 栏' : '隐藏 AI 栏';
+    if (!hidden) loadAiSettings();
+    if (persist) localStorage.setItem(profileKey('aiHidden'), hidden ? '1' : '0');
+  }
+
   function setViewMode(mode, persist = true){
     state.viewMode = mode || 'split';
     document.body.classList.remove('mode-split','mode-original','mode-translation','mode-stacked');
@@ -1663,15 +1673,15 @@
   els.orig.addEventListener('scroll', queueProgressSave);
   els.exportBtn.onclick = exportData; els.importBtn.onclick = () => els.importInput.click();
   els.importInput.onchange = e => { const f = e.target.files?.[0]; if (f) importData(f).catch(err => alert(err.message)); e.target.value = ''; };
-  els.aiBtn.onclick = () => { loadAiSettings(); els.aiDialog.showModal(); };
-  els.aiClose.onclick = () => els.aiDialog.close();
+  els.aiBtn.onclick = () => setAiHidden(!state.aiHidden);
+  els.hideAi.onclick = () => setAiHidden(true);
   els.aiSave.onclick = saveAiSettings;
   els.aiForget.onclick = () => {
     localStorage.removeItem(profileKey('aiSettings'));
     els.aiKey.value = '';
     els.aiAnswer.textContent = '已清除当前浏览器保存的 API Key。';
   };
-  els.aiForm.addEventListener('submit', e => { e.preventDefault(); askAi(); });
+  els.aiAsk.onclick = askAi;
   els.loginBtn.onclick = () => { els.authError.textContent = ''; els.authName.value = state.user?.name || ''; els.authPassword.value = ''; els.authDialog.showModal(); };
   els.logoutBtn.onclick = logout;
   els.authCancel.onclick = () => els.authDialog.close();
@@ -1694,6 +1704,7 @@
         original: parseFloat(styles.getPropertyValue('--original-width')) || 1,
         translation: parseFloat(styles.getPropertyValue('--translation-width')) || .9,
         notes: parseFloat(styles.getPropertyValue('--notes-width')) || 300,
+        ai: parseFloat(styles.getPropertyValue('--ai-width')) || 320,
       };
       document.body.classList.add('resizing');
       splitter.setPointerCapture?.(e.pointerId);
@@ -1711,6 +1722,8 @@
           applyCss('--translation-width', (total - nextOriginal) + 'fr');
         } else if (kind === 'translation') {
           applyCss('--notes-width', Math.max(220, Math.min(560, start.notes - dx)) + 'px');
+        } else if (kind === 'ai') {
+          applyCss('--ai-width', Math.max(240, Math.min(620, start.ai - dx)) + 'px');
         }
       };
       const move = ev => {
@@ -1724,7 +1737,7 @@
       const up = () => {
         if (frame) cancelAnimationFrame(frame);
         applyMove(lastEvent);
-        ['--library-width','--original-width','--translation-width','--notes-width'].forEach(persistCss);
+        ['--library-width','--original-width','--translation-width','--notes-width','--ai-width'].forEach(persistCss);
         document.body.classList.remove('resizing');
         window.removeEventListener('pointermove', move);
         window.removeEventListener('pointerup', up);
