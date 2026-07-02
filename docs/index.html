@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Paper Reader</title>
-  <link rel="stylesheet" href="local_styles.css?v=20260702-removeextra1" />
+  <link rel="stylesheet" href="local_styles.css?v=20260702-translationimages1" />
 </head>
 <body>
   <aside class="library">
@@ -21,8 +21,8 @@
       </div>
     </header>
     <input id="folderInput" type="file" webkitdirectory directory multiple hidden />
-    <input id="addFilesInput" type="file" accept=".pdf,.md,.txt,.html,.htm,application/pdf,text/plain,text/markdown,text/html" multiple hidden />
-    <input id="translationFileInput" type="file" accept=".pdf,.md,.txt,.html,.htm,application/pdf,text/plain,text/markdown,text/html" hidden />
+    <input id="addFilesInput" type="file" accept=".pdf,.md,.txt,.html,.htm,.png,.jpg,.jpeg,.gif,.webp,.svg,.bmp,application/pdf,text/plain,text/markdown,text/html,image/*" multiple hidden />
+    <input id="translationFileInput" type="file" accept=".pdf,.md,.txt,.html,.htm,.png,.jpg,.jpeg,.gif,.webp,.svg,.bmp,application/pdf,text/plain,text/markdown,text/html,image/*" hidden />
     <input id="replacePdfInput" type="file" accept=".pdf,application/pdf" hidden />
     <input id="importInput" type="file" accept="application/json,.json" hidden />
     <div id="libraryControls" class="library-controls">
@@ -176,6 +176,6 @@
   </dialog>
 
   <script src="pdf.min.js"></script>
-  <script src="local_app.js?v=20260702-removeextra1"></script>
+  <script src="local_app.js?v=20260702-translationimages1"></script>
 </body>
 </html>

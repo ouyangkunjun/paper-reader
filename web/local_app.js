@@ -5,6 +5,7 @@
   const DEFAULT_TAGS = ['待读','精读','综述','催化','DFT','机器学习','待翻译'];
   const MARK = /(^|[_\-\s])(zh|cn|chinese|translation|translated|中文|译文|翻译|中译)($|[_\-\s])/i;
   const EXT = ['.pdf', '.md', '.txt', '.html', '.htm'];
+  const IMAGE_EXT = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp'];
   const state = {
     papers: [],
     files: [],
@@ -92,6 +93,16 @@
   }
   function pathOf(f){ return f.webkitRelativePath || f._relativePath || f.name; }
   function id(f){ return [pathOf(f), f.size, f.lastModified].join('|'); }
+  function dirname(path){ const parts = path.split(/[\\/]/); parts.pop(); return parts.join('/'); }
+  function normalizePath(path){
+    const out = [];
+    path.replace(/\\/g, '/').split('/').forEach(part => {
+      if (!part || part === '.') return;
+      if (part === '..') out.pop();
+      else out.push(part);
+    });
+    return out.join('/');
+  }
   function profileId(){ return state.user?.id || 'guest'; }
   function storagePrefix(){ return BASE_PREFIX + 'profile.' + profileId() + '.'; }
   function appKey(name){ return BASE_PREFIX + name; }
@@ -345,14 +356,47 @@
     renderDetail(); renderList(); checkBackupReminder();
   }
 
-  function md(text){
-    return esc(text).split(/\n\s*\n/).map(block => {
+  function assetFileFor(docPath, rawSrc){
+    if (!rawSrc || /^(?:https?:|data:|blob:|#|mailto:)/i.test(rawSrc)) return null;
+    const clean = decodeURIComponent(String(rawSrc).split(/[?#]/)[0]).replace(/^\.?[\\/]/, '');
+    const base = dirname(docPath || '');
+    const candidates = [
+      normalizePath(base ? `${base}/${clean}` : clean),
+      normalizePath(clean),
+      name(clean)
+    ].filter(Boolean).map(v => v.toLowerCase());
+    return state.files.find(f => {
+      const p = normalizePath(pathOf(f)).toLowerCase();
+      return IMAGE_EXT.includes(ext(p)) && (candidates.includes(p) || name(p).toLowerCase() === candidates[candidates.length - 1]);
+    }) || null;
+  }
+
+  function assetUrlFor(docPath, src){
+    const file = assetFileFor(docPath, src);
+    return file ? URL.createObjectURL(file) : src;
+  }
+
+  function inlineMd(text, docPath){
+    return esc(text)
+      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, src) => `<img src="${esc(assetUrlFor(docPath, src.trim()))}" alt="${esc(alt)}" loading="lazy">`)
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, href) => `<a href="${esc(href.trim())}" target="_blank" rel="noopener">${label}</a>`);
+  }
+
+  function md(text, docPath = ''){
+    return text.split(/\n\s*\n/).map(block => {
       const x = block.trim();
       if (!x) return '';
-      if (/^#{1,4}\s/.test(x)) return '<h3>' + x.replace(/^#{1,4}\s/, '') + '</h3>';
-      if (/^[-*]\s/m.test(x)) return '<ul>' + x.split(/\n/).filter(Boolean).map(line => '<li>' + line.replace(/^[-*]\s*/, '') + '</li>').join('') + '</ul>';
-      return '<p>' + x.replace(/\n/g, '<br>') + '</p>';
+      if (/^#{1,4}\s/.test(x)) return '<h3>' + inlineMd(x.replace(/^#{1,4}\s/, ''), docPath) + '</h3>';
+      if (/^[-*]\s/m.test(x)) return '<ul>' + x.split(/\n/).filter(Boolean).map(line => '<li>' + inlineMd(line.replace(/^[-*]\s*/, ''), docPath) + '</li>').join('') + '</ul>';
+      return '<p>' + inlineMd(x, docPath).replace(/\n/g, '<br>') + '</p>';
     }).join('');
+  }
+
+  function htmlWithAssets(text, docPath){
+    return text.replace(/\s(src|href)=["']([^"']+)["']/gi, (all, attr, src) => {
+      if (attr.toLowerCase() === 'href' && !IMAGE_EXT.includes(ext(src))) return all;
+      return ` ${attr}="${esc(assetUrlFor(docPath, src))}"`;
+    });
   }
 
   function pass(p){
@@ -1092,9 +1136,16 @@
     const f = doc.file || doc, e = ext(f.name);
     if (e === '.pdf' && options.nativePdf) return renderNativePdf(f, box);
     if (e === '.pdf') return renderPdf(f, box);
-    if (e === '.html' || e === '.htm') { box.className = 'viewer'; box.innerHTML = ''; const fr = document.createElement('iframe'); fr.className = 'html-frame'; fr.src = URL.createObjectURL(f); box.appendChild(fr); return; }
+    if (e === '.html' || e === '.htm') {
+      box.className = 'viewer'; box.innerHTML = '';
+      const fr = document.createElement('iframe');
+      fr.className = 'html-frame';
+      fr.srcdoc = htmlWithAssets(await f.text(), doc.path || pathOf(f));
+      box.appendChild(fr);
+      return;
+    }
     const text = await f.text();
-    box.className = 'viewer'; box.innerHTML = '<div class="text-doc">' + (e === '.md' ? md(text) : esc(text)) + '</div>';
+    box.className = 'viewer'; box.innerHTML = '<div class="text-doc">' + (e === '.md' ? md(text, doc.path || pathOf(f)) : esc(text)) + '</div>';
   }
 
   async function openPaper(p){
