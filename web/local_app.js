@@ -16,6 +16,7 @@
     libraryHidden: false,
     controlsHidden: false,
     notesHidden: false,
+    detailHidden: false,
     compactTop: false,
     user: null,
     selected: new Set(),
@@ -29,14 +30,14 @@
   const $ = (s) => document.querySelector(s);
   const els = {
     pick: $('#pickFolderBtn'), refresh: $('#refreshFolderBtn'), hideLibrary: $('#hideLibraryBtn'), showLibrary: $('#showLibraryBtn'),
-    compactTop: $('#compactTopBtn'), toggleControls: $('#toggleControlsBtn'), libraryControls: $('#libraryControls'),
+    compactTop: $('#compactTopBtn'), toggleControls: $('#toggleControlsBtn'), hideControlsInner: $('#hideControlsInnerBtn'), libraryControls: $('#libraryControls'),
     hideNotes: $('#hideNotesBtn'), showNotes: $('#showNotesBtn'),
     input: $('#folderInput'), addFilesInput: $('#addFilesInput'), translationFileInput: $('#translationFileInput'), replacePdfInput: $('#replacePdfInput'), count: $('#paperCount'), search: $('#searchInput'),
     stats: $('#libraryStats'), tagFilter: $('#tagFilter'),
-    addFolder: $('#addFolderBtn'), addFiles: $('#addFilesBtn'), selectAll: $('#selectAllBtn'), deleteSelected: $('#deleteSelectedBtn'),
+    addFolder: $('#addFolderBtn'), addFiles: $('#addFilesBtn'), createFolder: $('#createFolderBtn'), targetFolder: $('#targetFolderSelect'), selectAll: $('#selectAllBtn'), deleteSelected: $('#deleteSelectedBtn'),
     filters: $('#filterBar'), list: $('#paperList'), title: $('#activeTitle'), meta: $('#activeMeta'),
     oname: $('#originalName'), tname: $('#translationName'), orig: $('#originalViewer'), trans: $('#translationViewer'),
-    read: $('#toggleReadBtn'), save: $('#saveNotesBtn'), add: $('#addNoteBtn'), loc: $('#noteLocation'), txt: $('#noteText'),
+    read: $('#toggleReadBtn'), save: $('#saveNotesBtn'), add: $('#addNoteBtn'), loc: $('#noteLocation'), txt: $('#noteText'), toggleDetail: $('#toggleDetailBtn'), hideDetail: $('#hideDetailBtn'),
     allNotesBtn: $('#allNotesBtn'), allNotesDialog: $('#allNotesDialog'), allNotesList: $('#allNotesList'), viewMode: $('#viewModeSelect'),
     detail: $('#detailPanel'), detailTitle: $('#detailTitle'), detailMeta: $('#detailMeta'), tagList: $('#tagList'), tagPreset: $('#tagPreset'),
     tagInput: $('#tagInput'), addTag: $('#addTagBtn'), starBtn: $('#starBtn'), renameBtn: $('#renameBtn'), replacePdf: $('#replacePdfBtn'),
@@ -127,6 +128,7 @@
     setNotesHidden(localStorage.getItem(profileKey('notesHidden')) !== '0', false);
     setViewMode(localStorage.getItem(profileKey('viewMode')) || 'split', false);
     setCompactTop(localStorage.getItem(profileKey('compactTop')) === '1', false);
+    setDetailHidden(localStorage.getItem(profileKey('detailHidden')) === '1', false);
     state.openFolders = get(profileKey('openFolders'), {});
   }
 
@@ -394,6 +396,28 @@
 
   function folderOfPaper(p){ return folderOfPath(p.path); }
 
+  function savedFolders(){ return get(profileKey('customFolders'), []); }
+
+  function saveFolderName(folder){
+    if (!folder || folder === '根目录') return;
+    const folders = new Set(savedFolders());
+    folders.add(folder);
+    set(profileKey('customFolders'), [...folders].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN')));
+  }
+
+  function currentFolders(){
+    return [...new Set([...savedFolders(), ...state.files.map(f => folderOfPath(pathOf(f))).filter(folder => folder !== '根目录')])]
+      .sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
+  }
+
+  function updateTargetFolderOptions(){
+    if (!els.targetFolder) return;
+    const current = els.targetFolder.value;
+    const options = ['<option value="">根目录</option>'].concat(currentFolders().map(folder => `<option value="${esc(folder)}">${esc(folder)}</option>`));
+    els.targetFolder.innerHTML = options.join('');
+    els.targetFolder.value = currentFolders().includes(current) ? current : '';
+  }
+
   function folderKey(name){ return 'folder:' + name; }
 
   function isFolderOpen(name){
@@ -424,6 +448,7 @@
     els.list.innerHTML = '';
     updateStats();
     updateTagFilterOptions();
+    updateTargetFolderOptions();
     const rows = state.papers.filter(pass);
     els.count.textContent = state.papers.length ? `${rows.length} / ${state.papers.length} 篇` : '请选择文件夹';
     updateLibraryTools(rows);
@@ -473,6 +498,7 @@
     const selectedFolderVisible = [...state.selectedFolders].filter(folder => visibleFolders.has(folder)).length;
     els.addFolder.disabled = false;
     els.addFiles.disabled = false;
+    els.createFolder.disabled = !state.directoryHandle;
     els.selectAll.disabled = !rows.length;
     els.deleteSelected.disabled = !selectedVisible && !selectedFolderVisible;
     els.selectAll.textContent = rows.length && selectedVisible === rows.length ? '取消全选' : '全选';
@@ -486,12 +512,14 @@
   }
 
   function renderDetail(){
-    if (!state.active) {
+    if (!state.active || state.detailHidden) {
       els.detail.classList.add('hidden');
+      if (els.toggleDetail) els.toggleDetail.disabled = !state.active;
       return;
     }
     const p = state.active, meta = loadMeta(p), translation = paperTranslation(p);
     els.detail.classList.remove('hidden');
+    if (els.toggleDetail) els.toggleDetail.disabled = false;
     els.detailTitle.textContent = shownTitle(p);
     const progress = meta.progress?.page ? `上次阅读到第 ${meta.progress.page} 页` : '暂无阅读进度';
     els.detailMeta.textContent = `${p.file.name} · ${translation ? '有译文' : '无译文'} · ${isRead(p) ? '已读' : '未读'} · 批注 ${noteCount(p)} · ${progress} · 最后阅读 ${fmtTime(meta.lastOpenedAt)}`;
@@ -731,6 +759,7 @@
     state.files = deduped.filter(f => !replacedPaths[pathOf(f)] || !presentPaths.has(replacedPaths[pathOf(f)]));
     state.selected = new Set([...state.selected].filter(pid => state.files.some(f => id(f) === pid)));
     state.selectedFolders = new Set([...state.selectedFolders].filter(folder => state.files.some(f => folderOfPath(pathOf(f)) === folder)));
+    currentFolders().forEach(saveFolderName);
     const docs = [];
     for (const f of state.files) {
       const path = pathOf(f);
@@ -796,6 +825,7 @@
       try {
         const handle = await window.showDirectoryPicker({ mode: 'read' });
         const files = await filesFromDirectoryHandle(handle);
+        saveFolderName(handle.name);
         if (state.directoryHandle && await copyFilesToLibrary(files, handle.name)) {
           toast(`已添加文件夹 ${handle.name}`);
           return;
@@ -836,11 +866,37 @@
     return true;
   }
 
+  async function createFolder(){
+    if (!state.directoryHandle) {
+      toast('请先选择文献总文件夹');
+      return;
+    }
+    const raw = prompt('新建文件夹名称');
+    if (!raw) return;
+    const folderName = cleanPathSegment(raw);
+    if (!folderName) return;
+    try {
+      if (!await ensureFolderPermission(state.directoryHandle, true, 'readwrite')) {
+        toast('没有获得文件夹写入权限');
+        return;
+      }
+      await state.directoryHandle.getDirectoryHandle(folderName, { create: true });
+      saveFolderName(folderName);
+      setFolderOpen(folderName, true);
+      await refreshFolder();
+      els.targetFolder.value = folderName;
+      toast(`已新建文件夹 ${folderName}`);
+    } catch (err) {
+      toast('无法新建文件夹');
+    }
+  }
+
   async function addFiles(files){
     if (!files.length) return;
+    const folderName = els.targetFolder?.value || '';
     try {
-      if (await copyFilesToLibrary(files)) {
-        toast(`已添加 ${files.length} 个文件`);
+      if (await copyFilesToLibrary(files, folderName)) {
+        toast(`已添加 ${files.length} 个文件${folderName ? '到 ' + folderName : ''}`);
         return;
       }
     } catch (err) {
@@ -1077,6 +1133,13 @@
     document.body.classList.toggle('notes-hidden', hidden);
     els.showNotes.classList.toggle('hidden', !hidden);
     if (persist) localStorage.setItem(profileKey('notesHidden'), hidden ? '1' : '0');
+  }
+
+  function setDetailHidden(hidden, persist = true){
+    state.detailHidden = hidden;
+    if (els.toggleDetail) els.toggleDetail.textContent = hidden ? '显示详情' : '收起详情';
+    if (persist) localStorage.setItem(profileKey('detailHidden'), hidden ? '1' : '0');
+    renderDetail();
   }
 
   function setViewMode(mode, persist = true){
@@ -1340,9 +1403,11 @@
   els.hideLibrary.onclick = () => setLibraryHidden(true);
   els.showLibrary.onclick = () => setLibraryHidden(false);
   els.toggleControls.onclick = () => setControlsHidden(!state.controlsHidden);
+  els.hideControlsInner.onclick = () => setControlsHidden(true);
   els.hideNotes.onclick = () => setNotesHidden(true);
   els.showNotes.onclick = () => setNotesHidden(false);
   els.addFolder.onclick = addFolder;
+  els.createFolder.onclick = createFolder;
   els.addFiles.onclick = () => els.addFilesInput.click();
   els.addFilesInput.onchange = e => { const files = Array.from(e.target.files || []); addFiles(files); e.target.value = ''; };
   els.selectAll.onclick = () => {
@@ -1366,6 +1431,8 @@
   els.read.onclick = () => { if (!state.active) return; setRead(state.active, !isRead(state.active)); updateRead(); renderList(); renderDetail(); checkBackupReminder(); };
   els.save.onclick = saveNotes; els.add.onclick = addNote;
   els.allNotesBtn.onclick = showAllNotes;
+  els.toggleDetail.onclick = () => setDetailHidden(!state.detailHidden);
+  els.hideDetail.onclick = () => setDetailHidden(true);
   els.viewMode.onchange = e => setViewMode(e.target.value);
   els.starBtn.onclick = () => { if (state.active) toggleStar(state.active); };
   els.renameBtn.onclick = renameActive;
