@@ -160,18 +160,21 @@
     });
   }
 
+  const DEFAULT_AI_MODEL = 'mimo-v2.5-pro';
+  const DEFAULT_AI_BASE = 'https://api.xiaomimimo.com/v1';
+
   function loadAiSettings(){
     const settings = get(profileKey('aiSettings'), {});
     els.aiKey.value = settings.key || '';
-    els.aiModel.value = settings.model || 'gpt-4.1-mini';
-    els.aiBase.value = settings.baseUrl || 'https://api.openai.com/v1/responses';
+    els.aiModel.value = settings.model || DEFAULT_AI_MODEL;
+    els.aiBase.value = settings.baseUrl || DEFAULT_AI_BASE;
   }
 
   function saveAiSettings(){
     set(profileKey('aiSettings'), {
       key: els.aiKey.value.trim(),
-      model: els.aiModel.value.trim() || 'gpt-4.1-mini',
-      baseUrl: els.aiBase.value.trim() || 'https://api.openai.com/v1/responses'
+      model: els.aiModel.value.trim() || DEFAULT_AI_MODEL,
+      baseUrl: els.aiBase.value.trim() || DEFAULT_AI_BASE
     });
     toast('AI 设置已保存');
   }
@@ -180,9 +183,30 @@
     const settings = get(profileKey('aiSettings'), {});
     return {
       key: settings.key || '',
-      model: settings.model || 'gpt-4.1-mini',
-      baseUrl: settings.baseUrl || 'https://api.openai.com/v1/responses'
+      model: settings.model || DEFAULT_AI_MODEL,
+      baseUrl: settings.baseUrl || DEFAULT_AI_BASE
     };
+  }
+
+  function normalizeAiEndpoint(baseUrl){
+    const raw = (baseUrl || DEFAULT_AI_BASE).trim().replace(/\/+$/, '');
+    if (/\/chat\/completions$/i.test(raw) || /\/responses$/i.test(raw)) return raw;
+    return `${raw}/chat/completions`;
+  }
+
+  function isMimoEndpoint(url){
+    return /xiaomimimo\.com/i.test(url);
+  }
+
+  function isChatEndpoint(url){
+    return /\/chat\/completions$/i.test(url) || isMimoEndpoint(url);
+  }
+
+  function aiRequestHeaders(url, keyValue){
+    const headers = { 'Content-Type': 'application/json' };
+    if (isMimoEndpoint(url)) headers['api-key'] = keyValue;
+    else headers.Authorization = `Bearer ${keyValue}`;
+    return headers;
   }
 
   function visibleText(el){
@@ -217,20 +241,21 @@
     const settings = currentAiSettings();
     const keyValue = settings.key;
     const model = settings.model;
-    const baseUrl = settings.baseUrl;
+    const endpoint = normalizeAiEndpoint(settings.baseUrl);
     const question = els.aiPrompt.value.trim();
     if (!keyValue) { els.aiAnswer.textContent = '请先在顶部“AI 设置”里填写并保存 API Key。'; return; }
     if (!question) { els.aiAnswer.textContent = '请先输入问题。'; return; }
     els.aiAsk.disabled = true;
     els.aiAnswer.textContent = '正在请求 AI...';
     try {
-      const body = baseUrl.includes('/chat/completions')
+      const body = isChatEndpoint(endpoint)
         ? {
             model,
             messages: [
               { role: 'system', content: '你是文献阅读助手。请基于用户提供的文献信息回答，无法判断时明确说明。' },
               { role: 'user', content: `${aiContextText()}\n\n问题：${question}` }
-            ]
+            ],
+            max_completion_tokens: 2048
           }
         : {
             model,
@@ -239,19 +264,16 @@
               { role: 'user', content: `${aiContextText()}\n\n问题：${question}` }
             ]
           };
-      const res = await fetch(baseUrl, {
+      const res = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${keyValue}`
-        },
+        headers: aiRequestHeaders(endpoint, keyValue),
         body: JSON.stringify(body)
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(payload.error?.message || `请求失败：${res.status}`);
       els.aiAnswer.textContent = responseText(payload);
     } catch (err) {
-      els.aiAnswer.textContent = `AI 请求失败：${err.message}\n\n如果你用的是 OpenAI 官方接口，请确认 Key、模型名和网络可用；如果浏览器拦截跨域请求，需要改用本地后端版。`;
+      els.aiAnswer.textContent = `AI 请求失败：${err.message}\n\n如果你用的是小米 MiMo，请确认 API Key、模型名、接口地址 ${DEFAULT_AI_BASE} 和浏览器网络可用；如果浏览器拦截跨域请求，需要改用本地后端版。`;
     } finally {
       els.aiAsk.disabled = false;
     }

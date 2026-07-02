@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Paper Reader</title>
-  <link rel="stylesheet" href="local_styles.css?v=20260702-aisettings1" />
+  <link rel="stylesheet" href="local_styles.css?v=20260702-mimo1" />
 </head>
 <body>
   <aside class="library">
@@ -192,11 +192,11 @@
         <h3>AI 设置</h3>
         <button type="button" id="aiSettingsCloseBtn">关闭</button>
       </div>
-      <p>API Key 只保存在当前浏览器。右侧 AI 栏提问时会使用这里保存的接口。</p>
+      <p>默认适配小米 MiMo。API Key 只保存在当前浏览器，右侧 AI 栏提问时会使用这里保存的接口。</p>
       <div class="ai-config">
-        <label class="field-label">API Key <input id="aiKeyInput" type="password" autocomplete="off" placeholder="sk-..." /></label>
-        <label class="field-label">模型 <input id="aiModelInput" placeholder="gpt-4.1-mini" /></label>
-        <label class="field-label wide">接口地址 <input id="aiBaseInput" placeholder="https://api.openai.com/v1/responses" /></label>
+        <label class="field-label">API Key <input id="aiKeyInput" type="password" autocomplete="off" placeholder="小米 MiMo API Key" /></label>
+        <label class="field-label">模型 <input id="aiModelInput" placeholder="mimo-v2.5-pro" /></label>
+        <label class="field-label wide">接口地址 <input id="aiBaseInput" placeholder="https://api.xiaomimimo.com/v1" /></label>
       </div>
       <div class="dialog-actions">
         <button type="button" id="aiForgetBtn">清除 Key</button>
@@ -206,6 +206,6 @@
   </dialog>
 
   <script src="pdf.min.js"></script>
-  <script src="local_app.js?v=20260702-aisettings1"></script>
+  <script src="local_app.js?v=20260702-mimo1"></script>
 </body>
 </html>
