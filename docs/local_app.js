@@ -376,20 +376,35 @@
     return file ? URL.createObjectURL(file) : src;
   }
 
-  function inlineMd(text, docPath){
+  function inlineMdFallback(text, docPath){
     return esc(text)
       .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, src) => `<img src="${esc(assetUrlFor(docPath, src.trim()))}" alt="${esc(alt)}" loading="lazy">`)
       .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, href) => `<a href="${esc(href.trim())}" target="_blank" rel="noopener">${label}</a>`);
   }
 
-  function md(text, docPath = ''){
+  function mdFallback(text, docPath = ''){
     return text.split(/\n\s*\n/).map(block => {
       const x = block.trim();
       if (!x) return '';
-      if (/^#{1,4}\s/.test(x)) return '<h3>' + inlineMd(x.replace(/^#{1,4}\s/, ''), docPath) + '</h3>';
-      if (/^[-*]\s/m.test(x)) return '<ul>' + x.split(/\n/).filter(Boolean).map(line => '<li>' + inlineMd(line.replace(/^[-*]\s*/, ''), docPath) + '</li>').join('') + '</ul>';
-      return '<p>' + inlineMd(x, docPath).replace(/\n/g, '<br>') + '</p>';
+      if (/^#{1,4}\s/.test(x)) return '<h3>' + inlineMdFallback(x.replace(/^#{1,4}\s/, ''), docPath) + '</h3>';
+      if (/^[-*]\s/m.test(x)) return '<ul>' + x.split(/\n/).filter(Boolean).map(line => '<li>' + inlineMdFallback(line.replace(/^[-*]\s*/, ''), docPath) + '</li>').join('') + '</ul>';
+      return '<p>' + inlineMdFallback(x, docPath).replace(/\n/g, '<br>') + '</p>';
     }).join('');
+  }
+
+  function md(text, docPath = ''){
+    if (!window.marked) return mdFallback(text, docPath);
+    const renderer = new marked.Renderer();
+    renderer.image = (href, title, text) => {
+      const src = assetUrlFor(docPath, href);
+      return `<img src="${esc(src)}" alt="${esc(text || '')}"${title ? ` title="${esc(title)}"` : ''} loading="lazy">`;
+    };
+    renderer.link = (href, title, text) => {
+      const safeHref = /^(?:https?:|mailto:|#)/i.test(href || '') ? href : assetUrlFor(docPath, href);
+      return `<a href="${esc(safeHref || '')}"${title ? ` title="${esc(title)}"` : ''} target="_blank" rel="noopener">${text}</a>`;
+    };
+    marked.setOptions({ gfm: true, breaks: false, mangle: false, headerIds: false });
+    return marked.parse(text, { renderer });
   }
 
   function htmlWithAssets(text, docPath){
