@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Paper Reader</title>
-  <link rel="stylesheet" href="local_styles.css?v=20260702-replacepdf2" />
+  <link rel="stylesheet" href="local_styles.css?v=20260702-replacepdf3" />
 </head>
 <body>
   <aside class="library">
@@ -149,8 +149,8 @@
   <dialog id="authDialog">
     <form id="authForm" method="dialog">
       <h3>本机登录</h3>
-      <p>登录信息只保存在当前浏览器，用来记住你的阅读状态和文件夹授权。</p>
-      <label class="field-label">用户名或邮箱 <input id="authName" autocomplete="username" required /></label>
+      <p>昵称和密码只保存在当前浏览器，用来区分不同人的阅读状态。</p>
+      <label class="field-label">昵称 <input id="authName" autocomplete="username" required /></label>
       <label class="field-label">密码 <input id="authPassword" type="password" autocomplete="current-password" required /></label>
       <div id="authError" class="form-error"></div>
       <div class="dialog-actions">
@@ -195,6 +195,6 @@
   </dialog>
 
   <script src="pdf.min.js"></script>
-  <script src="local_app.js?v=20260702-replacepdf2"></script>
+  <script src="local_app.js?v=20260702-replacepdf3"></script>
 </body>
 </html>

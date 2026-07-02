@@ -147,6 +147,8 @@
 
   function loadUsers(){ return get(appKey('users'), {}); }
   function saveUsers(users){ set(appKey('users'), users); }
+  function loadReplacedPaths(){ return get(profileKey('replacedPaths'), {}); }
+  function saveReplacedPaths(paths){ set(profileKey('replacedPaths'), paths); }
 
   function applyUser(){
     if (state.user) {
@@ -163,7 +165,7 @@
   async function login(nameValue, passwordValue){
     const name = nameValue.trim();
     const password = passwordValue;
-    if (!name || !password) throw new Error('请输入用户名和密码');
+    if (!name || !password) throw new Error('请输入昵称和密码');
     const id = userIdFromName(name);
     const users = loadUsers();
     const passwordHash = await digest(id + ':' + password);
@@ -414,7 +416,18 @@
   }
 
   function scan(files, message = '已读取本机文件夹'){
-    state.files = dedupeFiles(files);
+    const deduped = dedupeFiles(files);
+    const presentPaths = new Set(deduped.map(pathOf));
+    const replacedPaths = loadReplacedPaths();
+    let changedReplacements = false;
+    for (const [oldPath, newPath] of Object.entries(replacedPaths)) {
+      if (!presentPaths.has(newPath)) {
+        delete replacedPaths[oldPath];
+        changedReplacements = true;
+      }
+    }
+    if (changedReplacements) saveReplacedPaths(replacedPaths);
+    state.files = deduped.filter(f => !replacedPaths[pathOf(f)] || !presentPaths.has(replacedPaths[pathOf(f)]));
     state.selected = new Set([...state.selected].filter(pid => state.files.some(f => id(f) === pid)));
     const docs = [];
     for (const f of state.files) {
@@ -882,6 +895,13 @@
     });
   }
 
+  function rememberReplacedPath(oldPath, newPath){
+    if (!oldPath || !newPath || oldPath === newPath) return;
+    const replacedPaths = loadReplacedPaths();
+    replacedPaths[oldPath] = newPath;
+    saveReplacedPaths(replacedPaths);
+  }
+
   function openReplaceDialog(){
     if (!state.active) return;
     els.replaceDialog.showModal();
@@ -943,6 +963,7 @@
       }
       toast(targetName === activeName ? '已替换原文 PDF' : '已替换并按标题重命名');
       const nextPath = activePath.replace(/[^/\\]+$/, targetName);
+      rememberReplacedPath(activePath, nextPath);
       if (state.directoryHandle) {
         const files = await filesFromDirectoryHandle(state.directoryHandle);
         scan(files, '已刷新并载入替换后的 PDF');
