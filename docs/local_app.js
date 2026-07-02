@@ -48,7 +48,10 @@
     importInput: $('#importInput'), toast: $('#toast'),
     loginBtn: $('#loginBtn'), userInfo: $('#userInfo'), userName: $('#userName'), logoutBtn: $('#logoutBtn'),
     authDialog: $('#authDialog'), authForm: $('#authForm'), authName: $('#authName'), authPassword: $('#authPassword'),
-    authError: $('#authError'), authCancel: $('#authCancelBtn')
+    authError: $('#authError'), authCancel: $('#authCancelBtn'),
+    aiBtn: $('#aiBtn'), aiDialog: $('#aiDialog'), aiForm: $('#aiForm'), aiClose: $('#aiCloseBtn'), aiKey: $('#aiKeyInput'),
+    aiModel: $('#aiModelInput'), aiBase: $('#aiBaseInput'), aiPrompt: $('#aiPromptInput'), aiAnswer: $('#aiAnswer'),
+    aiSave: $('#aiSaveBtn'), aiForget: $('#aiForgetBtn'), aiAsk: $('#aiAskBtn')
   };
 
   if (window.pdfjsLib) window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js';
@@ -152,6 +155,94 @@
       tagFilter: state.tagFilter,
       search: els.search?.value || ''
     });
+  }
+
+  function loadAiSettings(){
+    const settings = get(profileKey('aiSettings'), {});
+    els.aiKey.value = settings.key || '';
+    els.aiModel.value = settings.model || 'gpt-4.1-mini';
+    els.aiBase.value = settings.baseUrl || 'https://api.openai.com/v1/responses';
+  }
+
+  function saveAiSettings(){
+    set(profileKey('aiSettings'), {
+      key: els.aiKey.value.trim(),
+      model: els.aiModel.value.trim() || 'gpt-4.1-mini',
+      baseUrl: els.aiBase.value.trim() || 'https://api.openai.com/v1/responses'
+    });
+    toast('AI 设置已保存');
+  }
+
+  function visibleText(el){
+    return (el?.innerText || el?.textContent || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function aiContextText(){
+    const title = state.active ? displayTitle(state.active) : '未选择文献';
+    const filename = state.active?.path || '';
+    const translation = visibleText(els.trans);
+    const notes = state.active ? (loadNotes(state.active).items || []).map(n => `${n.location || ''} ${n.body || ''}`).join('\n') : '';
+    return [
+      `文献标题：${title}`,
+      filename ? `文件路径：${filename}` : '',
+      translation ? `译文内容：\n${translation.slice(0, 18000)}` : '译文内容：当前没有可读取的译文文本。',
+      notes ? `本地批注：\n${notes.slice(0, 4000)}` : ''
+    ].filter(Boolean).join('\n\n');
+  }
+
+  function responseText(payload){
+    if (payload.output_text) return payload.output_text;
+    const chunks = [];
+    (payload.output || []).forEach(item => (item.content || []).forEach(part => {
+      if (part.text) chunks.push(part.text);
+      if (part.type === 'output_text' && part.text) chunks.push(part.text);
+    }));
+    if (chunks.length) return chunks.join('\n');
+    return payload.choices?.[0]?.message?.content || JSON.stringify(payload, null, 2);
+  }
+
+  async function askAi(){
+    const keyValue = els.aiKey.value.trim();
+    const model = els.aiModel.value.trim() || 'gpt-4.1-mini';
+    const baseUrl = els.aiBase.value.trim() || 'https://api.openai.com/v1/responses';
+    const question = els.aiPrompt.value.trim();
+    if (!keyValue) { els.aiAnswer.textContent = '请先填写 API Key。'; return; }
+    if (!question) { els.aiAnswer.textContent = '请先输入问题。'; return; }
+    saveAiSettings();
+    els.aiAsk.disabled = true;
+    els.aiAnswer.textContent = '正在请求 AI...';
+    try {
+      const body = baseUrl.includes('/chat/completions')
+        ? {
+            model,
+            messages: [
+              { role: 'system', content: '你是文献阅读助手。请基于用户提供的文献信息回答，无法判断时明确说明。' },
+              { role: 'user', content: `${aiContextText()}\n\n问题：${question}` }
+            ]
+          }
+        : {
+            model,
+            input: [
+              { role: 'system', content: '你是文献阅读助手。请基于用户提供的文献信息回答，无法判断时明确说明。' },
+              { role: 'user', content: `${aiContextText()}\n\n问题：${question}` }
+            ]
+          };
+      const res = await fetch(baseUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${keyValue}`
+        },
+        body: JSON.stringify(body)
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.error?.message || `请求失败：${res.status}`);
+      els.aiAnswer.textContent = responseText(payload);
+    } catch (err) {
+      els.aiAnswer.textContent = `AI 请求失败：${err.message}\n\n如果你用的是 OpenAI 官方接口，请确认 Key、模型名和网络可用；如果浏览器拦截跨域请求，需要改用本地后端版。`;
+    } finally {
+      els.aiAsk.disabled = false;
+    }
   }
 
   function saveActivePaper(p){
@@ -1572,6 +1663,15 @@
   els.orig.addEventListener('scroll', queueProgressSave);
   els.exportBtn.onclick = exportData; els.importBtn.onclick = () => els.importInput.click();
   els.importInput.onchange = e => { const f = e.target.files?.[0]; if (f) importData(f).catch(err => alert(err.message)); e.target.value = ''; };
+  els.aiBtn.onclick = () => { loadAiSettings(); els.aiDialog.showModal(); };
+  els.aiClose.onclick = () => els.aiDialog.close();
+  els.aiSave.onclick = saveAiSettings;
+  els.aiForget.onclick = () => {
+    localStorage.removeItem(profileKey('aiSettings'));
+    els.aiKey.value = '';
+    els.aiAnswer.textContent = '已清除当前浏览器保存的 API Key。';
+  };
+  els.aiForm.addEventListener('submit', e => { e.preventDefault(); askAi(); });
   els.loginBtn.onclick = () => { els.authError.textContent = ''; els.authName.value = state.user?.name || ''; els.authPassword.value = ''; els.authDialog.showModal(); };
   els.logoutBtn.onclick = logout;
   els.authCancel.onclick = () => els.authDialog.close();
