@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Paper Reader</title>
-  <link rel="stylesheet" href="local_styles.css?v=20260702-nativepdf1" />
+  <link rel="stylesheet" href="local_styles.css?v=20260702-replacepdf1" />
 </head>
 <body>
   <aside class="library">
@@ -21,6 +21,7 @@
     </header>
     <input id="folderInput" type="file" webkitdirectory directory multiple hidden />
     <input id="addFilesInput" type="file" accept=".pdf,.md,.txt,.html,.htm,application/pdf,text/plain,text/markdown,text/html" multiple hidden />
+    <input id="replacePdfInput" type="file" accept=".pdf,application/pdf" hidden />
     <input id="importInput" type="file" accept="application/json,.json" hidden />
     <input id="searchInput" class="search" placeholder="搜索文件名" />
     <div id="libraryStats" class="library-stats"></div>
@@ -94,6 +95,7 @@
         </div>
         <div class="detail-actions">
           <button id="renameBtn" disabled>修改显示名</button>
+          <button id="replacePdfBtn" disabled>替换原文</button>
           <button id="bindTranslationBtn" disabled>绑定译文</button>
           <button id="clearTranslationBtn" disabled>取消绑定</button>
         </div>
@@ -181,6 +183,6 @@
   </dialog>
 
   <script src="pdf.min.js"></script>
-  <script src="local_app.js?v=20260702-nativepdf1"></script>
+  <script src="local_app.js?v=20260702-replacepdf1"></script>
 </body>
 </html>

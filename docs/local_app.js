@@ -32,7 +32,7 @@
     pick: $('#pickFolderBtn'), refresh: $('#refreshFolderBtn'), hideLibrary: $('#hideLibraryBtn'), showLibrary: $('#showLibraryBtn'),
     compactTop: $('#compactTopBtn'),
     hideNotes: $('#hideNotesBtn'), showNotes: $('#showNotesBtn'),
-    input: $('#folderInput'), addFilesInput: $('#addFilesInput'), count: $('#paperCount'), search: $('#searchInput'),
+    input: $('#folderInput'), addFilesInput: $('#addFilesInput'), replacePdfInput: $('#replacePdfInput'), count: $('#paperCount'), search: $('#searchInput'),
     stats: $('#libraryStats'), tagFilter: $('#tagFilter'),
     addFolder: $('#addFolderBtn'), addFiles: $('#addFilesBtn'), selectAll: $('#selectAllBtn'), deleteSelected: $('#deleteSelectedBtn'),
     filters: $('#filterBar'), list: $('#paperList'), title: $('#activeTitle'), meta: $('#activeMeta'),
@@ -40,7 +40,7 @@
     read: $('#toggleReadBtn'), save: $('#saveNotesBtn'), add: $('#addNoteBtn'), loc: $('#noteLocation'), txt: $('#noteText'),
     allNotesBtn: $('#allNotesBtn'), allNotesDialog: $('#allNotesDialog'), allNotesList: $('#allNotesList'), viewMode: $('#viewModeSelect'),
     detail: $('#detailPanel'), detailTitle: $('#detailTitle'), detailMeta: $('#detailMeta'), tagList: $('#tagList'), tagPreset: $('#tagPreset'),
-    tagInput: $('#tagInput'), addTag: $('#addTagBtn'), starBtn: $('#starBtn'), renameBtn: $('#renameBtn'),
+    tagInput: $('#tagInput'), addTag: $('#addTagBtn'), starBtn: $('#starBtn'), renameBtn: $('#renameBtn'), replacePdf: $('#replacePdfBtn'),
     bindTranslation: $('#bindTranslationBtn'), clearTranslation: $('#clearTranslationBtn'), translationDialog: $('#translationDialog'),
     translationForm: $('#translationForm'), translationSelect: $('#translationSelect'), translationCancel: $('#translationCancelBtn'),
     backupBanner: $('#backupBanner'), backupExport: $('#backupExportBtn'), backupLater: $('#backupLaterBtn'),
@@ -348,7 +348,7 @@
     els.detailMeta.textContent = `${p.file.name} · ${translation ? '有译文' : '无译文'} · ${isRead(p) ? '已读' : '未读'} · 批注 ${noteCount(p)} · ${progress} · 最后阅读 ${fmtTime(meta.lastOpenedAt)}`;
     els.starBtn.textContent = meta.starred ? '★' : '☆';
     els.starBtn.classList.toggle('active', !!meta.starred);
-    els.starBtn.disabled = els.renameBtn.disabled = els.bindTranslation.disabled = els.addTag.disabled = false;
+    els.starBtn.disabled = els.renameBtn.disabled = els.replacePdf.disabled = els.bindTranslation.disabled = els.addTag.disabled = false;
     els.clearTranslation.disabled = !meta.manualTranslation;
     els.tagList.innerHTML = (meta.tags || []).map(t => `<span class="tag-chip">${esc(t)}<button data-tag="${esc(t)}">×</button></span>`).join('') || '<span class="paper-meta">暂无标签</span>';
     els.tagList.querySelectorAll('[data-tag]').forEach(btn => btn.onclick = () => removeTag(btn.dataset.tag));
@@ -886,6 +886,47 @@
     await openPaper(state.active);
   }
 
+  async function replaceActivePdf(file){
+    if (!state.active || !file) return;
+    if (ext(file.name) !== '.pdf') { toast('请选择 PDF 文件'); return; }
+    const activePath = state.active.path;
+    const activeName = state.active.file._entryName || state.active.file.name;
+    const parent = state.active.file._parentHandle;
+    if (!parent?.getFileHandle) {
+      toast('当前文件没有文件夹写入权限，请用“选择文件夹”重新授权后再替换');
+      return;
+    }
+    try {
+      if (!await ensureFolderPermission(parent, true, 'readwrite')) {
+        toast('没有获得写入权限');
+        return;
+      }
+      const target = await parent.getFileHandle(activeName, { create: false });
+      const writable = await target.createWritable();
+      await writable.write(file);
+      await writable.close();
+      toast('已替换原文 PDF');
+      if (state.directoryHandle) {
+        const files = await filesFromDirectoryHandle(state.directoryHandle);
+        scan(files, '已刷新并载入替换后的 PDF');
+        const next = state.papers.find(p => p.path === activePath) || state.papers.find(p => p.file.name === activeName);
+        if (next) await openPaper(next);
+      } else {
+        const replacement = await target.getFile();
+        try { Object.defineProperty(replacement, 'webkitRelativePath', { value: activePath, configurable: true }); }
+        catch { replacement._relativePath = activePath; }
+        replacement._entryName = activeName;
+        replacement._parentHandle = parent;
+        state.files = state.files.map(f => pathOf(f) === activePath ? replacement : f);
+        scan(state.files, '已载入替换后的 PDF');
+        const next = state.papers.find(p => p.path === activePath);
+        if (next) await openPaper(next);
+      }
+    } catch (err) {
+      toast('替换失败：请确认文件夹写入权限');
+    }
+  }
+
   function exportData(){
     const payload = { app: 'paper-reader', exportedAt: new Date().toISOString(), items: {} };
     for (let i = 0; i < localStorage.length; i++) {
@@ -957,6 +998,8 @@
   els.viewMode.onchange = e => setViewMode(e.target.value);
   els.starBtn.onclick = () => { if (state.active) toggleStar(state.active); };
   els.renameBtn.onclick = renameActive;
+  els.replacePdf.onclick = () => els.replacePdfInput.click();
+  els.replacePdfInput.onchange = e => { const file = e.target.files?.[0]; if (file) replaceActivePdf(file); e.target.value = ''; };
   els.addTag.onclick = addTag;
   els.tagPreset.onchange = () => { if (els.tagPreset.value) els.tagInput.value = els.tagPreset.value; };
   els.bindTranslation.onclick = openTranslationDialog;
