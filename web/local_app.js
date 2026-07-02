@@ -39,7 +39,6 @@
     tagInput: $('#tagInput'), addTag: $('#addTagBtn'), starBtn: $('#starBtn'), renameBtn: $('#renameBtn'), replacePdf: $('#replacePdfBtn'),
     bindTranslation: $('#bindTranslationBtn'), clearTranslation: $('#clearTranslationBtn'), translationDialog: $('#translationDialog'),
     translationForm: $('#translationForm'), translationSelect: $('#translationSelect'), translationCancel: $('#translationCancelBtn'),
-    replaceDialog: $('#replaceDialog'), replaceCancel: $('#replaceCancelBtn'), replaceKeepName: $('#replaceKeepNameBtn'), replaceTitleName: $('#replaceTitleNameBtn'),
     backupBanner: $('#backupBanner'), backupExport: $('#backupExportBtn'), backupLater: $('#backupLaterBtn'),
     notes: $('#notesList'), exportBtn: $('#exportBtn'), importBtn: $('#importBtn'),
     importInput: $('#importInput'), aiBtn: $('#aiBtn'), aiDialog: $('#aiDialog'), toast: $('#toast'),
@@ -527,6 +526,10 @@
       if (isGeneratedPdfName(p.path)) {
         const meta = loadMeta(p);
         if (!meta.displayName) saveMeta(p, { ...meta, displayName: title });
+        if (await renameGeneratedPdfToTitle(p) && state.directoryHandle) {
+          scan(await filesFromDirectoryHandle(state.directoryHandle), '已按标题整理 PDF 文件名');
+          return;
+        }
       }
     }
     if (token !== state.scanToken) return;
@@ -556,6 +559,26 @@
         const permission = await parent.queryPermission({ mode: 'readwrite' });
         if (permission === 'granted') await parent.removeEntry(entryName);
       } catch {}
+    }
+  }
+
+  async function renameGeneratedPdfToTitle(p){
+    if (!p?.pdfTitle || !isGeneratedPdfName(p.path)) return false;
+    const parent = p.file._parentHandle;
+    const oldName = p.file._entryName || p.file.name;
+    const targetName = safePdfNameFromTitle(p);
+    if (!parent?.getFileHandle || !parent?.removeEntry || oldName === targetName) return false;
+    try {
+      if (await parent.queryPermission?.({ mode: 'readwrite' }) !== 'granted') return false;
+      const target = await parent.getFileHandle(targetName, { create: true });
+      const writable = await target.createWritable();
+      await writable.write(p.file);
+      await writable.close();
+      await parent.removeEntry(oldName);
+      rememberReplacedPath(p.path, p.path.replace(/[^/\\]+$/, targetName));
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -948,6 +971,7 @@
       .replace(/[<>:"/\\|?*\x00-\x1F]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim()
+      .toLocaleLowerCase()
       .slice(0, 150);
     return (base || name(p.path).replace(/\.pdf$/i, '') || 'paper') + '.pdf';
   }
@@ -966,17 +990,6 @@
     const replacedPaths = loadReplacedPaths();
     replacedPaths[oldPath] = newPath;
     saveReplacedPaths(replacedPaths);
-  }
-
-  function openReplaceDialog(){
-    if (!state.active) return;
-    els.replaceDialog.showModal();
-  }
-
-  function chooseReplaceMode(mode){
-    state.replacePdfNameMode = mode;
-    els.replaceDialog.close();
-    els.replacePdfInput.click();
   }
 
   function openTranslationDialog(){
@@ -1010,7 +1023,7 @@
     const activePath = state.active.path;
     const activeName = state.active.file._entryName || state.active.file.name;
     const preservedTitle = displayTitle(state.active);
-    const targetName = state.replacePdfNameMode === 'title' ? safePdfNameFromTitle(state.active) : activeName;
+    const targetName = safePdfNameFromTitle(state.active);
     const parent = state.active.file._parentHandle;
     if (!parent?.getFileHandle) {
       toast('当前文件没有文件夹写入权限，请用“选择文件夹”重新授权后再替换');
@@ -1021,7 +1034,7 @@
         toast('没有获得写入权限');
         return;
       }
-      const target = await parent.getFileHandle(targetName, { create: state.replacePdfNameMode === 'title' });
+      const target = await parent.getFileHandle(targetName, { create: true });
       const writable = await target.createWritable();
       await writable.write(file);
       await writable.close();
@@ -1124,10 +1137,7 @@
   els.viewMode.onchange = e => setViewMode(e.target.value);
   els.starBtn.onclick = () => { if (state.active) toggleStar(state.active); };
   els.renameBtn.onclick = renameActive;
-  els.replacePdf.onclick = openReplaceDialog;
-  els.replaceCancel.onclick = () => els.replaceDialog.close();
-  els.replaceKeepName.onclick = () => chooseReplaceMode('original');
-  els.replaceTitleName.onclick = () => chooseReplaceMode('title');
+  els.replacePdf.onclick = () => els.replacePdfInput.click();
   els.replacePdfInput.onchange = e => { const file = e.target.files?.[0]; if (file) replaceActivePdf(file); e.target.value = ''; };
   els.addTag.onclick = addTag;
   els.tagPreset.onchange = () => { if (els.tagPreset.value) els.tagInput.value = els.tagPreset.value; };
