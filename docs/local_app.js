@@ -536,10 +536,11 @@
   }
 
   async function renamePaperFileToTitle(p){
-    if (!p?.pdfTitle) return false;
+    if (!p || !displayTitle(p)) return false;
     const parent = p.file._parentHandle;
     const oldName = p.file._entryName || p.file.name;
     const targetName = safePdfNameFromTitle(p);
+    const nextPath = p.path.replace(/[^/\\]+$/, targetName);
     if (!parent?.getFileHandle || !parent?.removeEntry || oldName === targetName) return false;
     try {
       if (await parent.queryPermission?.({ mode: 'readwrite' }) !== 'granted') return false;
@@ -547,8 +548,10 @@
       const writable = await target.createWritable();
       await writable.write(p.file);
       await writable.close();
+      const replacement = attachFileHandleInfo(await target.getFile(), nextPath, targetName, parent);
+      moveStoredPaperData(p.id, id(replacement));
       await parent.removeEntry(oldName);
-      rememberReplacedPath(p.path, p.path.replace(/[^/\\]+$/, targetName));
+      rememberReplacedPath(p.path, nextPath);
       return true;
     } catch {
       return false;
@@ -614,7 +617,7 @@
       p.pdfTitle = title;
       if (isGeneratedPdfName(p.path)) {
         const meta = loadMeta(p);
-        if (!meta.displayName) saveMeta(p, { ...meta, displayName: title });
+        if (!meta.displayName) saveMeta(p, { ...meta, displayName: title, customDisplayName: false });
         if (await renamePaperFileToTitle(p) && state.directoryHandle) {
           scan(await filesFromDirectoryHandle(state.directoryHandle), '已按标题整理 PDF 文件名');
           return;
@@ -1050,13 +1053,16 @@
     els.allNotesDialog.showModal();
   }
 
-  function renameActive(){
+  async function renameActive(){
     if (!state.active) return;
     const next = prompt('显示名', displayTitle(state.active));
     if (next === null) return;
-    updateMeta(state.active, { displayName: next.trim() });
+    updateMeta(state.active, { displayName: next.trim(), customDisplayName: true });
     els.title.textContent = shownTitle(state.active);
     renderDetail(); renderList(); checkBackupReminder();
+    if (await renamePaperFileToTitle(state.active) && state.directoryHandle) {
+      scan(await filesFromDirectoryHandle(state.directoryHandle), '已按自定义名称重命名 PDF');
+    }
   }
 
   function safePdfNameFromTitle(p){
@@ -1077,6 +1083,14 @@
       const value = localStorage.getItem(oldKey);
       if (value && !localStorage.getItem(key(kind, newId))) localStorage.setItem(key(kind, newId), value);
     });
+  }
+
+  function attachFileHandleInfo(file, path, entryName, parentHandle){
+    try { Object.defineProperty(file, 'webkitRelativePath', { value: path, configurable: true }); }
+    catch { file._relativePath = path; }
+    file._entryName = entryName;
+    file._parentHandle = parentHandle;
+    return file;
   }
 
   function rememberReplacedPath(oldPath, newPath){
@@ -1142,6 +1156,7 @@
     const oldId = state.active.id;
     const activePath = state.active.path;
     const activeName = state.active.file._entryName || state.active.file.name;
+    const preservedMeta = loadMeta(state.active);
     const preservedTitle = displayTitle(state.active);
     const targetName = safePdfNameFromTitle(state.active);
     const nextPath = activePath.replace(/[^/\\]+$/, targetName);
@@ -1186,17 +1201,14 @@
         const files = await filesFromDirectoryHandle(state.directoryHandle);
         scan(files, '已刷新并载入替换后的 PDF');
         const next = state.papers.find(p => p.path === nextPath) || state.papers.find(p => p.file.name === targetName) || state.papers.find(p => p.path === activePath);
-        if (next) { moveStoredPaperData(oldId, next.id); updateMeta(next, { ...loadMeta(next), displayName: preservedTitle }); await openPaper(next); }
+        if (next) { moveStoredPaperData(oldId, next.id); updateMeta(next, { ...loadMeta(next), displayName: preservedTitle, customDisplayName: !!preservedMeta.customDisplayName }); await openPaper(next); }
       } else {
         const replacement = await target.getFile();
-        try { Object.defineProperty(replacement, 'webkitRelativePath', { value: nextPath, configurable: true }); }
-        catch { replacement._relativePath = nextPath; }
-        replacement._entryName = targetName;
-        replacement._parentHandle = parent;
+        attachFileHandleInfo(replacement, nextPath, targetName, parent);
         state.files = state.files.map(f => pathOf(f) === activePath ? replacement : f);
         scan(state.files, '已载入替换后的 PDF');
         const next = state.papers.find(p => p.path === nextPath);
-        if (next) { moveStoredPaperData(oldId, next.id); updateMeta(next, { ...loadMeta(next), displayName: preservedTitle }); await openPaper(next); }
+        if (next) { moveStoredPaperData(oldId, next.id); updateMeta(next, { ...loadMeta(next), displayName: preservedTitle, customDisplayName: !!preservedMeta.customDisplayName }); await openPaper(next); }
       }
     } catch (err) {
       toast('替换失败：请确认文件夹写入权限');
