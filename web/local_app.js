@@ -27,7 +27,7 @@
     viewMode: 'split',
     progressTimer: null,
     scanToken: 0,
-    aiScreenshotMode: true,
+    aiScreenshotMode: false,
     aiScreenshotStart: null,
     aiCaptureStream: null,
     aiCaptureVideo: null,
@@ -392,7 +392,7 @@
       if (state.active) renderDoc(state.active.file, els.orig, '无法显示原文。');
       positionScreenshotLayer();
       els.screenshotCaptureLayer.classList.remove('hidden');
-      els.aiAnswer.textContent = '截图翻译默认开启：在文献区拖框即可翻译。第一次拖框时会请求页面截图权限。';
+      els.aiAnswer.textContent = '截图翻译已开启：在文献区拖框即可翻译。第一次拖框时会请求页面截图权限。';
     } else {
       els.screenshotCaptureLayer.classList.add('hidden');
       els.screenshotMarquee.classList.add('hidden');
@@ -2116,7 +2116,7 @@
     renderList();
     checkBackupReminder();
     await restoreSavedFolder();
-    setScreenshotMode(true);
+    setScreenshotMode(false);
   }
   init();
 })();
