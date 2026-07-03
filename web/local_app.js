@@ -389,6 +389,7 @@
     document.body.classList.toggle('screenshot-mode', active);
     if (active) {
       setAiHidden(false);
+      if (state.active) renderDoc(state.active.file, els.orig, '无法显示原文。');
       positionScreenshotLayer();
       els.screenshotCaptureLayer.classList.remove('hidden');
       els.aiAnswer.textContent = '截图翻译默认开启：在文献区拖框即可翻译。第一次拖框时会请求页面截图权限。';
@@ -396,8 +397,27 @@
       els.screenshotCaptureLayer.classList.add('hidden');
       els.screenshotMarquee.classList.add('hidden');
       stopCaptureStream();
+      if (state.active) renderDoc(state.active.file, els.orig, '无法显示原文。', { nativePdf: true });
       els.aiAnswer.textContent = '截图翻译已关闭。';
     }
+  }
+
+  function viewerUnderPoint(x, y){
+    els.screenshotCaptureLayer.classList.add('hidden');
+    const stack = document.elementsFromPoint(x, y);
+    els.screenshotCaptureLayer.classList.remove('hidden');
+    return stack.find(el => el?.classList?.contains('viewer'))
+      || stack.find(el => el?.closest?.('.viewer'))?.closest('.viewer')
+      || null;
+  }
+
+  function scrollViewerAt(x, y, dx, dy){
+    const viewer = viewerUnderPoint(x, y);
+    if (!viewer) return false;
+    viewer.scrollTop += dy;
+    viewer.scrollLeft += dx;
+    if (viewer === els.orig) queueProgressSave();
+    return true;
   }
 
   function positionScreenshotLayer(){
@@ -1636,7 +1656,10 @@
     els.oname.textContent = p.file.name; els.tname.textContent = translation ? name(translation.path) : '未找到对应译文';
     els.read.disabled = els.save.disabled = els.add.disabled = false;
     updateRead(); renderList(); renderNotes(); renderDetail();
-    await Promise.all([renderDoc(p.file, els.orig, '无法显示原文。', { nativePdf: true }), renderDoc(translation, els.trans, '未找到对应译文文件。')]);
+    await Promise.all([
+      renderDoc(p.file, els.orig, '无法显示原文。', state.aiScreenshotMode ? {} : { nativePdf: true }),
+      renderDoc(translation, els.trans, '未找到对应译文文件。')
+    ]);
     if (state.aiScreenshotMode) positionScreenshotLayer();
     checkBackupReminder();
   }
@@ -2005,14 +2028,8 @@
   });
   els.screenshotCaptureLayer.addEventListener('wheel', e => {
     if (!state.aiScreenshotMode) return;
-    els.screenshotCaptureLayer.classList.add('hidden');
-    const under = document.elementFromPoint(e.clientX, e.clientY);
-    els.screenshotCaptureLayer.classList.remove('hidden');
-    const viewer = under?.closest?.('.viewer');
-    if (viewer) {
+    if (scrollViewerAt(e.clientX, e.clientY, e.deltaX, e.deltaY)) {
       e.preventDefault();
-      viewer.scrollTop += e.deltaY;
-      viewer.scrollLeft += e.deltaX;
     }
   }, { passive: false });
   document.addEventListener('pointermove', e => {
