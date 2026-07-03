@@ -2043,7 +2043,6 @@
     paintScreenshotMarquee(rect);
     translateScreenshot(rect);
   });
-  setScreenshotMode(true);
   els.loginBtn.onclick = () => { els.authError.textContent = ''; els.authName.value = state.user?.name || ''; els.authPassword.value = ''; els.authDialog.showModal(); };
   els.logoutBtn.onclick = logout;
   els.authCancel.onclick = () => els.authDialog.close();
@@ -2117,6 +2116,7 @@
     renderList();
     checkBackupReminder();
     await restoreSavedFolder();
+    setScreenshotMode(true);
   }
   init();
 })();
