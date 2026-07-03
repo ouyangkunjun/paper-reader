@@ -1567,7 +1567,8 @@
   }
 
   async function renderPdf(file, box){
-    const token = ++state.pdfToken;
+    const token = (box._pdfRenderToken || 0) + 1;
+    box._pdfRenderToken = token;
     box.className = 'viewer'; box.innerHTML = '<div class="paper-meta loading">正在渲染 PDF...</div>';
     if (!window.pdfjsLib) { box.textContent = 'PDF.js 未加载。'; return; }
     try {
@@ -1576,10 +1577,10 @@
         const meta = loadMeta(state.active);
         saveMeta(state.active, { ...meta, progress: { ...(meta.progress || {}), totalPages: pdf.numPages } });
       }
-      if (token !== state.pdfToken) return;
+      if (token !== box._pdfRenderToken) return;
       box.innerHTML = '';
       for (let i = 1; i <= pdf.numPages; i++) {
-        if (token !== state.pdfToken) return;
+        if (token !== box._pdfRenderToken) return;
         const page = await pdf.getPage(i);
         const vp = page.getViewport({ scale: Math.min(1.75, Math.max(1.15, (box.clientWidth - 44) / page.getViewport({ scale: 1 }).width)) });
         const outputScale = Math.min(2.4, Math.max(1, window.devicePixelRatio || 1));
@@ -1597,36 +1598,11 @@
           viewport: vp,
           transform: outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null
         }).promise;
-        await renderPdfTextLayer(page, vp, wrap);
       }
       if (box === els.orig) restoreProgress();
     } catch (err) {
       box.className = 'viewer empty'; box.textContent = '无法显示这个 PDF：' + err.message;
     }
-  }
-
-  async function renderPdfTextLayer(page, viewport, wrap){
-    try {
-      const content = await page.getTextContent();
-      const layer = document.createElement('div');
-      layer.className = 'pdf-text-layer';
-      layer.style.width = wrap.style.width;
-      layer.style.height = wrap.style.height;
-      wrap.appendChild(layer);
-      content.items.forEach(item => {
-        if (!item.str || !item.str.trim()) return;
-        const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
-        const fontHeight = Math.max(6, Math.hypot(tx[2], tx[3]));
-        const span = document.createElement('span');
-        span.textContent = item.str;
-        span.style.left = `${tx[4]}px`;
-        span.style.top = `${tx[5] - fontHeight}px`;
-        span.style.fontSize = `${fontHeight}px`;
-        span.style.fontFamily = 'sans-serif';
-        span.style.transform = `scaleX(${Math.max(.75, Math.min(1.35, (item.width * viewport.scale) / Math.max(1, item.str.length * fontHeight * .5)))})`;
-        layer.appendChild(span);
-      });
-    } catch {}
   }
 
   async function renderDoc(doc, box, empty, options = {}){
