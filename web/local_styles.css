@@ -584,9 +584,11 @@ body.screenshot-mode .reader {
   position: fixed;
   z-index: 90;
   width: min(340px, calc(100vw - 24px));
+  height: auto;
   min-width: 220px;
   min-height: 96px;
-  max-height: 260px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
   overflow: auto;
   border: 1px solid #b8c5d8;
   border-radius: 8px;
@@ -633,6 +635,24 @@ body.screenshot-mode .reader {
 }
 .ai-bubble-content {
   padding: 12px;
+}
+.ai-bubble-resize {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+}
+.ai-bubble-resize::before {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid #94a3b8;
+  border-bottom: 2px solid #94a3b8;
 }
 .ai-panel .ai-answer {
   flex: 1;

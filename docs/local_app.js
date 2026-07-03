@@ -27,10 +27,7 @@
     viewMode: 'split',
     progressTimer: null,
     scanToken: 0,
-    aiSelectionMode: false,
-    aiScreenshotMode: false,
-    aiLastSelection: '',
-    aiSelectionTimer: null,
+    aiScreenshotMode: true,
     aiScreenshotStart: null,
     aiCaptureStream: null,
     aiCaptureVideo: null,
@@ -61,7 +58,7 @@
     aiBtn: $('#aiBtn'), aiPanel: $('#aiPanel'), aiSettingsBtn: $('#aiSettingsBtn'), hideAi: $('#hideAiBtn'), aiSettingsDialog: $('#aiSettingsDialog'),
     aiSettingsForm: $('#aiSettingsForm'), aiSettingsClose: $('#aiSettingsCloseBtn'), aiKey: $('#aiKeyInput'),
     aiModel: $('#aiModelInput'), aiBase: $('#aiBaseInput'), aiPrompt: $('#aiPromptInput'), aiAnswer: $('#aiAnswer'),
-    aiSave: $('#aiSaveBtn'), aiForget: $('#aiForgetBtn'), aiAsk: $('#aiAskBtn'), aiTranslateSelection: $('#aiTranslateSelectionBtn'),
+    aiSave: $('#aiSaveBtn'), aiForget: $('#aiForgetBtn'), aiAsk: $('#aiAskBtn'),
     aiScreenshotMode: $('#aiScreenshotModeBtn'), screenshotCaptureLayer: $('#screenshotCaptureLayer'), screenshotMarquee: $('#screenshotMarquee')
   };
 
@@ -326,7 +323,7 @@
     document.querySelectorAll('.ai-inline-translation').forEach(el => el.remove());
     const bubble = document.createElement('div');
     bubble.className = 'ai-inline-translation ' + kind;
-    bubble.innerHTML = `<div class="ai-bubble-bar"><span>${kind === 'screenshot' ? '截图翻译' : '划词翻译'}</span><button type="button" aria-label="关闭">×</button></div><div class="ai-bubble-content">${esc(text)}</div>`;
+    bubble.innerHTML = `<div class="ai-bubble-bar"><span>截图翻译</span><button type="button" aria-label="关闭">×</button></div><div class="ai-bubble-content">${esc(text)}</div><div class="ai-bubble-resize" aria-hidden="true"></div>`;
     document.body.appendChild(bubble);
     const top = Math.max(8, Math.min(window.innerHeight - 80, rect.bottom + 8));
     const left = Math.max(8, Math.min(window.innerWidth - 340, rect.right + 8));
@@ -334,6 +331,7 @@
     bubble.style.left = `${left}px`;
     bubble.querySelector('button').onclick = () => bubble.remove();
     makeBubbleDraggable(bubble);
+    makeBubbleResizable(bubble);
   }
 
   function makeBubbleDraggable(bubble){
@@ -362,69 +360,38 @@
     });
   }
 
-  function setSelectionMode(active){
-    state.aiSelectionMode = active;
-    els.aiTranslateSelection.textContent = active ? '划词翻译：开' : '划词翻译：关';
-    els.aiTranslateSelection.classList.toggle('active', active);
-    if (active) {
-      setAiHidden(false);
-      els.aiAnswer.textContent = '划词翻译已开启：用鼠标选中文本后会自动翻译。再次点击按钮可关闭。';
-      if (state.active) renderDoc(state.active.file, els.orig, '无法显示原文。', { selectablePdf: true });
-      handleSelectionChange();
-    } else {
-      state.aiLastSelection = '';
-      clearTimeout(state.aiSelectionTimer);
-      document.querySelectorAll('.ai-inline-translation.selection').forEach(el => el.remove());
-      els.aiAnswer.textContent = '划词翻译已关闭。';
-      if (state.active) renderDoc(state.active.file, els.orig, '无法显示原文。', { nativePdf: true });
-    }
-  }
-
-  async function translateSelectionText(text, rect){
-    if (!text || text === state.aiLastSelection) return;
-    state.aiLastSelection = text;
-    setAiHidden(false);
-    const answer = await runAiTask({
-      prompt: `请把下面这段学术文本翻译成准确、自然的中文。保留专业术语、公式和变量，不要额外解释。\n\n${text.slice(0, 12000)}`,
-      system: '你是专业学术翻译助手，只输出译文。',
-      busyText: '正在翻译划选文字...',
-      buttons: [els.aiTranslateSelection]
+  function makeBubbleResizable(bubble){
+    const handle = bubble.querySelector('.ai-bubble-resize');
+    if (!handle) return;
+    handle.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      const start = { x: e.clientX, y: e.clientY };
+      const rect = bubble.getBoundingClientRect();
+      handle.setPointerCapture?.(e.pointerId);
+      const move = ev => {
+        bubble.style.width = `${Math.max(220, rect.width + ev.clientX - start.x)}px`;
+        bubble.style.height = `${Math.max(96, rect.height + ev.clientY - start.y)}px`;
+      };
+      const up = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
     });
-    showAiBubble(answer, rect, 'selection');
-  }
-
-  function handleSelectionChange(){
-    if (!state.aiSelectionMode) return;
-    clearTimeout(state.aiSelectionTimer);
-    state.aiSelectionTimer = setTimeout(() => {
-      const info = selectionInfo();
-      if (!info.text) return;
-      translateSelectionText(info.text, info.rect);
-    }, 500);
   }
 
   async function setScreenshotMode(active){
     state.aiScreenshotMode = active;
-    els.aiScreenshotMode.textContent = active ? '截图翻译：开' : '截图翻译：关';
+    els.aiScreenshotMode.textContent = active ? '暂停截图翻译' : '开启截图翻译';
     els.aiScreenshotMode.classList.toggle('active', active);
     document.body.classList.toggle('screenshot-mode', active);
     if (active) {
       setAiHidden(false);
       positionScreenshotLayer();
       els.screenshotCaptureLayer.classList.remove('hidden');
-      els.aiAnswer.textContent = '截图翻译已开启：第一次会让你选择当前标签页或窗口，之后可连续在文献区拖框翻译。';
-      toast('截图翻译已开启');
-      try {
-        await ensureCaptureVideo();
-        els.aiAnswer.textContent = '截图翻译已准备好：现在可以在文献阅读区拖框翻译。再次点击按钮可关闭。';
-      } catch (err) {
-        state.aiScreenshotMode = false;
-        els.aiScreenshotMode.textContent = '截图翻译：关';
-        els.aiScreenshotMode.classList.remove('active');
-        document.body.classList.remove('screenshot-mode');
-        els.screenshotCaptureLayer.classList.add('hidden');
-        els.aiAnswer.textContent = `截图准备失败：${err.message}\n\n请重新点击“截图翻译：关/开”，并在弹窗里选择当前标签页或窗口。`;
-      }
+      els.aiAnswer.textContent = '截图翻译默认开启：在文献区拖框即可翻译。第一次拖框时会请求页面截图权限。';
     } else {
       els.screenshotCaptureLayer.classList.add('hidden');
       els.screenshotMarquee.classList.add('hidden');
@@ -538,7 +505,9 @@
       return;
     }
     const extra = els.aiPrompt.value.trim();
-    els.aiAnswer.textContent = '正在截取当前页面。浏览器弹窗出现时，请选择当前标签页或当前窗口。';
+    els.aiAnswer.textContent = state.aiCaptureVideo
+      ? '正在截取并翻译...'
+      : '第一次截图需要授权。浏览器弹窗出现时，请选择当前标签页或当前窗口。';
     try {
       els.screenshotMarquee.classList.add('hidden');
       els.screenshotCaptureLayer.classList.add('hidden');
@@ -1667,10 +1636,8 @@
     els.oname.textContent = p.file.name; els.tname.textContent = translation ? name(translation.path) : '未找到对应译文';
     els.read.disabled = els.save.disabled = els.add.disabled = false;
     updateRead(); renderList(); renderNotes(); renderDetail();
-    await Promise.all([
-      renderDoc(p.file, els.orig, '无法显示原文。', state.aiSelectionMode ? { selectablePdf: true } : { nativePdf: true }),
-      renderDoc(translation, els.trans, '未找到对应译文文件。')
-    ]);
+    await Promise.all([renderDoc(p.file, els.orig, '无法显示原文。', { nativePdf: true }), renderDoc(translation, els.trans, '未找到对应译文文件。')]);
+    if (state.aiScreenshotMode) positionScreenshotLayer();
     checkBackupReminder();
   }
 
@@ -2028,16 +1995,26 @@
     els.aiAnswer.textContent = '已清除当前浏览器保存的 API Key。';
   };
   els.aiAsk.onclick = askAi;
-  els.aiTranslateSelection.onclick = () => setSelectionMode(!state.aiSelectionMode);
   els.aiScreenshotMode.onclick = () => setScreenshotMode(!state.aiScreenshotMode);
   window.addEventListener('resize', () => { if (state.aiScreenshotMode) positionScreenshotLayer(); });
-  document.addEventListener('selectionchange', handleSelectionChange);
   els.screenshotCaptureLayer.addEventListener('pointerdown', e => {
     if (!state.aiScreenshotMode || e.button !== 0) return;
     e.preventDefault();
     state.aiScreenshotStart = { x: e.clientX, y: e.clientY };
     paintScreenshotMarquee({ left: e.clientX, top: e.clientY, width: 0, height: 0 });
   });
+  els.screenshotCaptureLayer.addEventListener('wheel', e => {
+    if (!state.aiScreenshotMode) return;
+    els.screenshotCaptureLayer.classList.add('hidden');
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    els.screenshotCaptureLayer.classList.remove('hidden');
+    const viewer = under?.closest?.('.viewer');
+    if (viewer) {
+      e.preventDefault();
+      viewer.scrollTop += e.deltaY;
+      viewer.scrollLeft += e.deltaX;
+    }
+  }, { passive: false });
   document.addEventListener('pointermove', e => {
     if (!state.aiScreenshotMode || !state.aiScreenshotStart) return;
     paintScreenshotMarquee(rectFromPoints(state.aiScreenshotStart, { x: e.clientX, y: e.clientY }));
@@ -2049,6 +2026,7 @@
     paintScreenshotMarquee(rect);
     translateScreenshot(rect);
   });
+  setScreenshotMode(true);
   els.loginBtn.onclick = () => { els.authError.textContent = ''; els.authName.value = state.user?.name || ''; els.authPassword.value = ''; els.authDialog.showModal(); };
   els.logoutBtn.onclick = logout;
   els.authCancel.onclick = () => els.authDialog.close();
