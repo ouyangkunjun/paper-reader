@@ -32,6 +32,8 @@
     aiLastSelection: '',
     aiSelectionTimer: null,
     aiScreenshotStart: null,
+    aiCaptureStream: null,
+    aiCaptureVideo: null,
   };
   const $ = (s) => document.querySelector(s);
   const els = {
@@ -340,12 +342,14 @@
     if (active) {
       setAiHidden(false);
       els.aiAnswer.textContent = '划词翻译已开启：用鼠标选中文本后会自动翻译。再次点击按钮可关闭。';
+      if (state.active) renderDoc(state.active.file, els.orig, '无法显示原文。', { selectablePdf: true });
       handleSelectionChange();
     } else {
       state.aiLastSelection = '';
       clearTimeout(state.aiSelectionTimer);
       document.querySelectorAll('.ai-inline-translation.selection').forEach(el => el.remove());
       els.aiAnswer.textContent = '划词翻译已关闭。';
+      if (state.active) renderDoc(state.active.file, els.orig, '无法显示原文。', { nativePdf: true });
     }
   }
 
@@ -372,7 +376,7 @@
     }, 500);
   }
 
-  function setScreenshotMode(active){
+  async function setScreenshotMode(active){
     state.aiScreenshotMode = active;
     els.aiScreenshotMode.textContent = active ? '截图翻译：开' : '截图翻译：关';
     els.aiScreenshotMode.classList.toggle('active', active);
@@ -381,18 +385,42 @@
       setAiHidden(false);
       positionScreenshotLayer();
       els.screenshotCaptureLayer.classList.remove('hidden');
-      els.aiAnswer.textContent = '截图翻译已开启：在文献区域按住鼠标拖一个框，松开后会翻译框里的内容并贴在旁边。';
+      els.aiAnswer.textContent = '截图翻译已开启：第一次会让你选择当前标签页或窗口，之后可连续在文献区拖框翻译。';
       toast('截图翻译已开启');
+      try {
+        await ensureCaptureVideo();
+        els.aiAnswer.textContent = '截图翻译已准备好：现在可以在文献阅读区拖框翻译。再次点击按钮可关闭。';
+      } catch (err) {
+        state.aiScreenshotMode = false;
+        els.aiScreenshotMode.textContent = '截图翻译：关';
+        els.aiScreenshotMode.classList.remove('active');
+        document.body.classList.remove('screenshot-mode');
+        els.screenshotCaptureLayer.classList.add('hidden');
+        els.aiAnswer.textContent = `截图准备失败：${err.message}\n\n请重新点击“截图翻译：关/开”，并在弹窗里选择当前标签页或窗口。`;
+      }
     } else {
       els.screenshotCaptureLayer.classList.add('hidden');
       els.screenshotMarquee.classList.add('hidden');
+      stopCaptureStream();
       els.aiAnswer.textContent = '截图翻译已关闭。';
     }
   }
 
   function positionScreenshotLayer(){
     if (!els.viewerGrid || !els.screenshotCaptureLayer) return;
-    const rect = els.viewerGrid.getBoundingClientRect();
+    const panels = [...els.viewerGrid.querySelectorAll('.viewer-panel')]
+      .filter(panel => getComputedStyle(panel).display !== 'none');
+    const rects = panels.map(panel => panel.getBoundingClientRect()).filter(r => r.width > 0 && r.height > 0);
+    const rect = rects.length
+      ? {
+          left: Math.min(...rects.map(r => r.left)),
+          top: Math.min(...rects.map(r => r.top)),
+          right: Math.max(...rects.map(r => r.right)),
+          bottom: Math.max(...rects.map(r => r.bottom))
+        }
+      : els.viewerGrid.getBoundingClientRect();
+    rect.width = rect.right - rect.left;
+    rect.height = rect.bottom - rect.top;
     Object.assign(els.screenshotCaptureLayer.style, {
       left: `${rect.left}px`,
       top: `${rect.top}px`,
@@ -422,18 +450,39 @@
     els.screenshotMarquee.classList.remove('hidden');
   }
 
-  async function captureViewportCrop(rect){
+  function stopCaptureStream(){
+    state.aiCaptureStream?.getTracks().forEach(track => track.stop());
+    state.aiCaptureStream = null;
+    state.aiCaptureVideo = null;
+  }
+
+  async function ensureCaptureVideo(){
     if (!navigator.mediaDevices?.getDisplayMedia) throw new Error('当前浏览器不支持页面截图权限');
-    const stream = await navigator.mediaDevices.getDisplayMedia({
+    const activeTrack = state.aiCaptureStream?.getVideoTracks?.()[0];
+    if (state.aiCaptureVideo && activeTrack && activeTrack.readyState === 'live') return state.aiCaptureVideo;
+    stopCaptureStream();
+    state.aiCaptureStream = await navigator.mediaDevices.getDisplayMedia({
       video: { displaySurface: 'browser' },
-      audio: false
+      audio: false,
+      preferCurrentTab: true
     });
+    state.aiCaptureStream.getVideoTracks()[0].addEventListener('ended', () => {
+      state.aiCaptureStream = null;
+      state.aiCaptureVideo = null;
+      if (state.aiScreenshotMode) setScreenshotMode(false);
+    });
+    const video = document.createElement('video');
+    video.srcObject = state.aiCaptureStream;
+    video.muted = true;
+    await video.play();
+    await new Promise(resolve => setTimeout(resolve, 160));
+    state.aiCaptureVideo = video;
+    return video;
+  }
+
+  async function captureViewportCrop(rect){
+    const video = await ensureCaptureVideo();
     try {
-      const video = document.createElement('video');
-      video.srcObject = stream;
-      video.muted = true;
-      await video.play();
-      await new Promise(resolve => setTimeout(resolve, 120));
       const scaleX = video.videoWidth / window.innerWidth;
       const scaleY = video.videoHeight / window.innerHeight;
       const canvas = document.createElement('canvas');
@@ -452,9 +501,7 @@
         canvas.height
       );
       return canvas.toDataURL('image/png');
-    } finally {
-      stream.getTracks().forEach(track => track.stop());
-    }
+    } finally {}
   }
 
   async function translateScreenshot(rect){
@@ -468,6 +515,7 @@
     try {
       els.screenshotMarquee.classList.add('hidden');
       els.screenshotCaptureLayer.classList.add('hidden');
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const imageData = await captureViewportCrop(rect);
       const answer = await runAiTask({
         prompt: `请识别这张截图里的文字、公式、图注或表格内容，并翻译成中文。尽量保留原有层级、编号、变量和单位。${extra ? '\n\n额外要求：' + extra : ''}`,
@@ -1533,6 +1581,7 @@
           viewport: vp,
           transform: outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null
         }).promise;
+        await renderPdfTextLayer(page, vp, wrap);
       }
       if (box === els.orig) restoreProgress();
     } catch (err) {
@@ -1540,9 +1589,34 @@
     }
   }
 
+  async function renderPdfTextLayer(page, viewport, wrap){
+    try {
+      const content = await page.getTextContent();
+      const layer = document.createElement('div');
+      layer.className = 'pdf-text-layer';
+      layer.style.width = wrap.style.width;
+      layer.style.height = wrap.style.height;
+      wrap.appendChild(layer);
+      content.items.forEach(item => {
+        if (!item.str || !item.str.trim()) return;
+        const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+        const fontHeight = Math.max(6, Math.hypot(tx[2], tx[3]));
+        const span = document.createElement('span');
+        span.textContent = item.str;
+        span.style.left = `${tx[4]}px`;
+        span.style.top = `${tx[5] - fontHeight}px`;
+        span.style.fontSize = `${fontHeight}px`;
+        span.style.fontFamily = 'sans-serif';
+        span.style.transform = `scaleX(${Math.max(.75, Math.min(1.35, (item.width * viewport.scale) / Math.max(1, item.str.length * fontHeight * .5)))})`;
+        layer.appendChild(span);
+      });
+    } catch {}
+  }
+
   async function renderDoc(doc, box, empty, options = {}){
     if (!doc) { box.className = 'viewer empty'; box.textContent = empty; return; }
     const f = doc.file || doc, e = ext(f.name);
+    if (e === '.pdf' && options.selectablePdf) return renderPdf(f, box);
     if (e === '.pdf' && options.nativePdf) return renderNativePdf(f, box);
     if (e === '.pdf') return renderPdf(f, box);
     if (e === '.html' || e === '.htm') {
@@ -1566,7 +1640,10 @@
     els.oname.textContent = p.file.name; els.tname.textContent = translation ? name(translation.path) : '未找到对应译文';
     els.read.disabled = els.save.disabled = els.add.disabled = false;
     updateRead(); renderList(); renderNotes(); renderDetail();
-    await Promise.all([renderDoc(p.file, els.orig, '无法显示原文。', { nativePdf: true }), renderDoc(translation, els.trans, '未找到对应译文文件。')]);
+    await Promise.all([
+      renderDoc(p.file, els.orig, '无法显示原文。', state.aiSelectionMode ? { selectablePdf: true } : { nativePdf: true }),
+      renderDoc(translation, els.trans, '未找到对应译文文件。')
+    ]);
     checkBackupReminder();
   }
 

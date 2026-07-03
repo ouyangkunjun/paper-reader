@@ -486,6 +486,21 @@ body.mode-stacked [data-splitter="translation"], body.mode-stacked [data-splitte
 .loading { padding: 16px; }
 .pdf-page-wrap { position: relative; max-width: 100%; margin: 0 auto 14px; background: #fff; box-shadow: var(--shadow); }
 .pdf-page { display: block; max-width: 100%; background: #fff; }
+.pdf-text-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  opacity: .01;
+  line-height: 1;
+  user-select: text;
+}
+.pdf-text-layer span {
+  position: absolute;
+  white-space: pre;
+  color: #000;
+  transform-origin: 0 0;
+  cursor: text;
+}
 .text-doc { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 18px; line-height: 1.7; white-space: pre-wrap; }
 .text-doc h3 { margin: 1.2em 0 .5em; }
 .text-doc p { margin: .7em 0; }
