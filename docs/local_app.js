@@ -13,7 +13,6 @@
     active: null,
     notes: { items: [] },
     filter: 'all',
-    pdfToken: 0,
     libraryHidden: false,
     controlsHidden: false,
     notesHidden: false,
@@ -39,7 +38,7 @@
     hideNotes: $('#hideNotesBtn'), showNotes: $('#showNotesBtn'),
     input: $('#folderInput'), addFilesInput: $('#addFilesInput'), translationFileInput: $('#translationFileInput'), replacePdfInput: $('#replacePdfInput'), count: $('#paperCount'), search: $('#searchInput'),
     stats: $('#libraryStats'), tagFilter: $('#tagFilter'),
-    addFolder: $('#addFolderBtn'), addFiles: $('#addFilesBtn'), createFolder: $('#createFolderBtn'), targetFolder: $('#targetFolderSelect'), selectAll: $('#selectAllBtn'), deleteSelected: $('#deleteSelectedBtn'),
+    addFolder: $('#addFolderBtn'), addFiles: $('#addFilesBtn'), createFolder: $('#createFolderBtn'), targetFolder: $('#targetFolderSelect'), selectAll: $('#selectAllBtn'), deleteSelected: $('#deleteSelectedBtn'), cleanDuplicates: $('#cleanDuplicatesBtn'),
     filters: $('#filterBar'), list: $('#paperList'), title: $('#activeTitle'), meta: $('#activeMeta'),
     viewerGrid: $('#viewerGrid'),
     oname: $('#originalName'), tname: $('#translationName'), orig: $('#originalViewer'), trans: $('#translationViewer'),
@@ -55,7 +54,7 @@
     loginBtn: $('#loginBtn'), userInfo: $('#userInfo'), userName: $('#userName'), logoutBtn: $('#logoutBtn'),
     authDialog: $('#authDialog'), authForm: $('#authForm'), authName: $('#authName'), authPassword: $('#authPassword'),
     authError: $('#authError'), authCancel: $('#authCancelBtn'),
-    aiBtn: $('#aiBtn'), aiPanel: $('#aiPanel'), aiSettingsBtn: $('#aiSettingsBtn'), hideAi: $('#hideAiBtn'), aiSettingsDialog: $('#aiSettingsDialog'),
+    aiBtn: $('#aiBtn'), aiPanel: $('#aiPanel'), aiSettingsBtn: $('#aiSettingsBtn'), aiScreenshotTop: $('#aiScreenshotTopBtn'), hideAi: $('#hideAiBtn'), aiSettingsDialog: $('#aiSettingsDialog'),
     aiSettingsForm: $('#aiSettingsForm'), aiSettingsClose: $('#aiSettingsCloseBtn'), aiKey: $('#aiKeyInput'),
     aiModel: $('#aiModelInput'), aiBase: $('#aiBaseInput'), aiPrompt: $('#aiPromptInput'), aiAnswer: $('#aiAnswer'),
     aiSave: $('#aiSaveBtn'), aiForget: $('#aiForgetBtn'), aiAsk: $('#aiAskBtn'),
@@ -248,6 +247,27 @@
     return payload.choices?.[0]?.message?.content || JSON.stringify(payload, null, 2);
   }
 
+  function aiFriendlyError(err, endpoint, imageData){
+    const status = err.status || 0;
+    const message = err.message || '未知错误';
+    const tips = [];
+    if (status === 401 || status === 403 || /api key|apikey|unauthorized|forbidden|permission|鉴权|认证|密钥/i.test(message)) {
+      tips.push('API Key 可能不正确，或当前账号没有这个模型的调用权限。');
+    } else if (status === 404 || /model|模型|not found/i.test(message)) {
+      tips.push('模型名可能不对。文字问答默认用 mimo-v2.5-pro，截图翻译默认用 mimo-v2.5。');
+    } else if (status === 429 || /quota|rate|limit|余额|配额|频率/i.test(message)) {
+      tips.push('接口额度或调用频率可能受限，可以稍后再试，或检查小米 MiMo 控制台额度。');
+    } else if (!status && /failed to fetch|network|cors|load failed/i.test(message)) {
+      tips.push('浏览器可能连不上接口，或者接口没有允许网页跨域请求。');
+      tips.push('如果一直这样，需要改用本地后端版来转发请求。');
+    } else if (status >= 500) {
+      tips.push('模型服务端暂时异常，可以稍后再试。');
+    }
+    if (imageData) tips.push('截图翻译需要支持图片输入的模型；如果失败，请确认当前图片模型可以识别图片。');
+    tips.push(`当前接口：${endpoint || DEFAULT_AI_BASE}`);
+    return `AI 请求失败：${message}\n\n${tips.join('\n')}`;
+  }
+
   function aiUserContent(prompt, imageData, responsesApi){
     if (!imageData) return prompt;
     return responsesApi
@@ -288,12 +308,16 @@
         body: JSON.stringify(body)
       });
       const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(payload.error?.message || `请求失败：${res.status}`);
+      if (!res.ok) {
+        const error = new Error(payload.error?.message || payload.message || `请求失败：${res.status}`);
+        error.status = res.status;
+        throw error;
+      }
       const answer = responseText(payload);
       els.aiAnswer.textContent = answer;
       return answer;
     } catch (err) {
-      els.aiAnswer.textContent = `AI 请求失败：${err.message}\n\n如果你用的是小米 MiMo，请确认 API Key、模型名、接口地址 ${DEFAULT_AI_BASE} 和浏览器网络可用；截图翻译会自动使用 ${DEFAULT_AI_IMAGE_MODEL}。如果浏览器拦截跨域请求，需要改用本地后端版。`;
+      els.aiAnswer.textContent = aiFriendlyError(err, endpoint, imageData);
       return '';
     } finally {
       buttons.forEach(btn => { if (btn) btn.disabled = false; });
@@ -382,10 +406,16 @@
     });
   }
 
+  function syncScreenshotButtons(active){
+    [els.aiScreenshotMode, els.aiScreenshotTop].filter(Boolean).forEach(btn => {
+      btn.textContent = active ? '暂停截图翻译' : '开启截图翻译';
+      btn.classList.toggle('active', active);
+    });
+  }
+
   async function setScreenshotMode(active){
     state.aiScreenshotMode = active;
-    els.aiScreenshotMode.textContent = active ? '暂停截图翻译' : '开启截图翻译';
-    els.aiScreenshotMode.classList.toggle('active', active);
+    syncScreenshotButtons(active);
     document.body.classList.toggle('screenshot-mode', active);
     if (active) {
       setAiHidden(false);
@@ -538,7 +568,7 @@
         system: '你是专业学术截图翻译助手，先识别截图内容，再给出中文翻译。',
         imageData,
         busyText: '正在翻译截图...',
-        buttons: [els.aiScreenshotMode]
+        buttons: [els.aiScreenshotMode, els.aiScreenshotTop]
       });
       showAiBubble(answer, rect, 'screenshot');
     } catch (err) {
@@ -1010,6 +1040,7 @@
     els.createFolder.disabled = !state.directoryHandle;
     els.selectAll.disabled = !rows.length;
     els.deleteSelected.disabled = !selectedVisible && !selectedFolderVisible;
+    els.cleanDuplicates.disabled = !state.papers.length;
     els.selectAll.textContent = rows.length && selectedVisible === rows.length ? '取消全选' : '全选';
   }
 
@@ -1127,7 +1158,8 @@
     }
     if (changed) saveReplacedPaths(replacedPaths);
     if (hidden.size) state.papers = state.papers.filter(p => !hidden.has(p.id));
-    if (changed) await cleanupHiddenReplacedFiles(state.files, replacedPaths, new Set(state.files.map(pathOf)));
+    const removedFromDisk = changed ? await cleanupHiddenReplacedFiles(state.files, replacedPaths, new Set(state.files.map(pathOf))) : 0;
+    return { hidden: hidden.size, removedFromDisk };
   }
 
   async function renamePaperFileToTitle(p){
@@ -1236,6 +1268,7 @@
   }
 
   async function cleanupHiddenReplacedFiles(files, replacedPaths, presentPaths){
+    let removed = 0;
     for (const f of files) {
       const oldPath = pathOf(f);
       if (!replacedPaths[oldPath] || !presentPaths.has(replacedPaths[oldPath])) continue;
@@ -1244,9 +1277,13 @@
       if (!parent?.removeEntry || !parent.queryPermission) continue;
       try {
         const permission = await parent.queryPermission({ mode: 'readwrite' });
-        if (permission === 'granted') await parent.removeEntry(entryName);
+        if (permission === 'granted') {
+          await parent.removeEntry(entryName);
+          removed++;
+        }
       } catch {}
     }
+    return removed;
   }
 
   function scan(files, message = '已读取本机文件夹', options = {}){
@@ -1472,6 +1509,24 @@
     }
     if (state.directoryHandle && removedFromDisk) await refreshFolder();
     else scan(state.files, removedFromDisk ? '已删除选中文献' : '已从当前列表移除');
+  }
+
+  async function cleanDuplicatePapersManually(){
+    if (!state.papers.length) return;
+    els.cleanDuplicates.disabled = true;
+    try {
+      const result = await collapseDuplicatePapers();
+      state.selected.clear();
+      state.selectedFolders.clear();
+      if (state.directoryHandle && result.removedFromDisk) await refreshFolder();
+      else renderList();
+      const parts = [];
+      if (result.hidden) parts.push(`隐藏 ${result.hidden} 个旧版本`);
+      if (result.removedFromDisk) parts.push(`删除 ${result.removedFromDisk} 个本地旧文件`);
+      toast(parts.length ? `已清理重复文献：${parts.join('，')}` : '没有发现需要清理的重复文献');
+    } finally {
+      updateLibraryTools();
+    }
   }
 
   async function refreshFolder(){
@@ -1945,6 +2000,7 @@
     renderList();
   };
   els.deleteSelected.onclick = deleteSelected;
+  els.cleanDuplicates.onclick = cleanDuplicatePapersManually;
   els.input.onchange = e => {
     const files = Array.from(e.target.files || []);
     if (state.pendingFolderMode === 'merge') scan([...state.files, ...files], '已添加文件夹');
@@ -1995,6 +2051,7 @@
   };
   els.aiAsk.onclick = askAi;
   els.aiScreenshotMode.onclick = () => setScreenshotMode(!state.aiScreenshotMode);
+  els.aiScreenshotTop.onclick = () => setScreenshotMode(!state.aiScreenshotMode);
   window.addEventListener('resize', () => { if (state.aiScreenshotMode) positionScreenshotLayer(); });
   els.screenshotCaptureLayer.addEventListener('pointerdown', e => {
     if (!state.aiScreenshotMode || e.button !== 0) return;

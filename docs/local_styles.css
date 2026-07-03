@@ -145,6 +145,8 @@ body.resizing .native-pdf-frame {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  contain: content;
+  overscroll-behavior: contain;
 }
 .folder-row {
   height: 42px;
@@ -204,6 +206,8 @@ body.resizing .native-pdf-frame {
   align-items: stretch;
   box-shadow: 0 1px 3px rgba(16,24,40,.08);
   overflow: hidden;
+  content-visibility: auto;
+  contain-intrinsic-size: 68px;
 }
 .paper-row:hover {
   border-color: #8fb0e8;
@@ -315,6 +319,11 @@ body.resizing .native-pdf-frame {
 .toolbar select {
   min-height: 36px;
   white-space: nowrap;
+}
+.toolbar button.active {
+  color: #14532d;
+  border-color: #86efac;
+  background: #dcfce7;
 }
 #compactTopBtn {
   min-width: 88px;
