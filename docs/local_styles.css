@@ -584,6 +584,8 @@ body.screenshot-mode .reader {
   position: fixed;
   z-index: 90;
   width: min(340px, calc(100vw - 24px));
+  min-width: 220px;
+  min-height: 96px;
   max-height: 260px;
   overflow: auto;
   border: 1px solid #b8c5d8;
@@ -591,20 +593,46 @@ body.screenshot-mode .reader {
   background: #fff;
   color: var(--text);
   box-shadow: var(--shadow);
-  padding: 12px;
   white-space: pre-wrap;
   line-height: 1.55;
+  resize: both;
 }
 .ai-inline-translation.screenshot {
   border-color: #86efac;
   background: #f7fff9;
 }
-.ai-inline-translation button {
-  float: right;
-  margin: -4px -4px 6px 8px;
+.ai-inline-translation.dragging {
+  user-select: none;
+}
+.ai-bubble-bar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 8px 7px 12px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(248, 250, 252, .96);
+  cursor: move;
+}
+.ai-inline-translation.screenshot .ai-bubble-bar {
+  background: rgba(240, 253, 244, .96);
+}
+.ai-bubble-bar span {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.ai-bubble-bar button {
   width: 26px;
   height: 26px;
   padding: 0;
+  flex: 0 0 auto;
+}
+.ai-bubble-content {
+  padding: 12px;
 }
 .ai-panel .ai-answer {
   flex: 1;

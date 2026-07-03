@@ -326,13 +326,40 @@
     document.querySelectorAll('.ai-inline-translation').forEach(el => el.remove());
     const bubble = document.createElement('div');
     bubble.className = 'ai-inline-translation ' + kind;
-    bubble.innerHTML = `<button type="button" aria-label="关闭">×</button><div>${esc(text)}</div>`;
+    bubble.innerHTML = `<div class="ai-bubble-bar"><span>${kind === 'screenshot' ? '截图翻译' : '划词翻译'}</span><button type="button" aria-label="关闭">×</button></div><div class="ai-bubble-content">${esc(text)}</div>`;
     document.body.appendChild(bubble);
     const top = Math.max(8, Math.min(window.innerHeight - 80, rect.bottom + 8));
     const left = Math.max(8, Math.min(window.innerWidth - 340, rect.right + 8));
     bubble.style.top = `${top}px`;
     bubble.style.left = `${left}px`;
     bubble.querySelector('button').onclick = () => bubble.remove();
+    makeBubbleDraggable(bubble);
+  }
+
+  function makeBubbleDraggable(bubble){
+    const bar = bubble.querySelector('.ai-bubble-bar');
+    if (!bar) return;
+    bar.addEventListener('pointerdown', e => {
+      if (e.target.closest('button')) return;
+      e.preventDefault();
+      const start = { x: e.clientX, y: e.clientY };
+      const rect = bubble.getBoundingClientRect();
+      bubble.classList.add('dragging');
+      bar.setPointerCapture?.(e.pointerId);
+      const move = ev => {
+        const nextLeft = Math.max(0, Math.min(window.innerWidth - 40, rect.left + ev.clientX - start.x));
+        const nextTop = Math.max(0, Math.min(window.innerHeight - 40, rect.top + ev.clientY - start.y));
+        bubble.style.left = `${nextLeft}px`;
+        bubble.style.top = `${nextTop}px`;
+      };
+      const up = () => {
+        bubble.classList.remove('dragging');
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    });
   }
 
   function setSelectionMode(active){
