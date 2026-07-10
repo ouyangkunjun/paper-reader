@@ -572,6 +572,21 @@ body.mode-stacked [data-splitter="translation"], body.mode-stacked [data-splitte
 .text-doc { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 18px; line-height: 1.7; white-space: pre-wrap; }
 .text-doc h3 { margin: 1.2em 0 .5em; }
 .text-doc p { margin: .7em 0; }
+.text-doc .katex { white-space: normal; }
+.text-doc .katex-display {
+  display: block;
+  max-width: 100%;
+  margin: 14px 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  text-align: center;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+.text-doc math {
+  font-family: "Cambria Math", "STIX Two Math", serif;
+  font-size: 1.04em;
+}
 .text-doc img {
   display: block;
   max-width: 100%;

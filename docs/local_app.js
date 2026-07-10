@@ -889,6 +889,26 @@
     }).join('');
   }
 
+  function renderMath(root){
+    if (!root || typeof window.renderMathInElement !== 'function') return;
+    try {
+      window.renderMathInElement(root, {
+        delimiters: [
+          { left: '$$', right: '$$', display: true },
+          { left: '\\[', right: '\\]', display: true },
+          { left: '$', right: '$', display: false },
+          { left: '\\(', right: '\\)', display: false }
+        ],
+        ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
+        throwOnError: false,
+        strict: 'ignore',
+        output: 'mathml'
+      });
+    } catch (err) {
+      console.warn('Math rendering skipped:', err);
+    }
+  }
+
   function htmlWithAssets(text, docPath){
     return text.replace(/\s(src|href)=["']([^"']+)["']/gi, (all, attr, src) => {
       if (attr.toLowerCase() === 'href' && !IMAGE_EXT.includes(ext(src))) return all;
@@ -1676,7 +1696,9 @@
       return;
     }
     const text = await f.text();
-    box.className = 'viewer'; box.innerHTML = '<div class="text-doc">' + (e === '.md' ? md(text, doc.path || pathOf(f)) : esc(text)) + '</div>';
+    box.className = 'viewer';
+    box.innerHTML = '<div class="text-doc">' + (e === '.md' ? md(text, doc.path || pathOf(f)) : esc(text)) + '</div>';
+    renderMath(box);
   }
 
   async function openPaper(p, options = {}){
