@@ -1550,6 +1550,7 @@
 
   function clear(msg){
     els.title.textContent = msg || '选择一篇文献开始阅读';
+    els.title.title = els.title.textContent;
     els.meta.textContent = '文件只在你的浏览器里读取；状态保存在当前浏览器。';
     els.oname.textContent = 'PDF';
     els.tname.textContent = '自动匹配同名译文';
@@ -1683,7 +1684,9 @@
     saveActivePaper(p);
     updateMeta(p, { lastOpenedAt: new Date().toISOString() });
     const translation = paperTranslation(p);
-    els.title.textContent = shownTitle(p); els.meta.textContent = p.path + ' · ' + size(p.file.size);
+    els.title.textContent = shownTitle(p);
+    els.title.title = els.title.textContent;
+    els.meta.textContent = p.path + ' · ' + size(p.file.size);
     els.oname.textContent = p.file.name; els.tname.textContent = translation ? name(translation.path) : '未找到对应译文';
     els.read.disabled = els.save.disabled = els.add.disabled = false;
     updateRead(); renderList(); renderNotes(); renderDetail();
@@ -1784,6 +1787,7 @@
     if (next === null) return;
     updateMeta(state.active, { displayName: next.trim(), customDisplayName: true });
     els.title.textContent = shownTitle(state.active);
+    els.title.title = els.title.textContent;
     renderDetail(); renderList(); checkBackupReminder();
     if (await renamePaperFileToTitle(state.active) && state.directoryHandle) {
       scan(await filesFromDirectoryHandle(state.directoryHandle), '已按自定义名称重命名 PDF');
@@ -2052,6 +2056,15 @@
   els.aiAsk.onclick = askAi;
   els.aiScreenshotMode.onclick = () => setScreenshotMode(!state.aiScreenshotMode);
   els.aiScreenshotTop.onclick = () => setScreenshotMode(!state.aiScreenshotMode);
+  const toolbarMore = document.querySelector('.toolbar-more');
+  toolbarMore?.addEventListener('click', e => {
+    if (e.target.closest('button') && !e.target.closest('button').disabled) {
+      requestAnimationFrame(() => toolbarMore.removeAttribute('open'));
+    }
+  });
+  document.addEventListener('pointerdown', e => {
+    if (toolbarMore?.open && !toolbarMore.contains(e.target)) toolbarMore.removeAttribute('open');
+  });
   window.addEventListener('resize', () => { if (state.aiScreenshotMode) positionScreenshotLayer(); });
   els.screenshotCaptureLayer.addEventListener('pointerdown', e => {
     if (!state.aiScreenshotMode || e.button !== 0) return;
