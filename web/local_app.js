@@ -1009,13 +1009,17 @@
     updateTagFilterOptions();
     updateTargetFolderOptions();
     const rows = state.papers.filter(pass);
+    const showEmptyFolders = state.filter === 'all' && !state.tagFilter && !els.search.value.trim();
+    const emptyFolders = showEmptyFolders
+      ? currentFolders().filter(folder => !state.papers.some(p => folderOfPaper(p) === folder))
+      : [];
     els.count.textContent = state.papers.length ? `${rows.length} / ${state.papers.length} 篇` : '请选择文件夹';
     updateLibraryTools(rows);
-    if (!rows.length) {
+    if (!rows.length && !emptyFolders.length) {
       els.list.innerHTML = '<div class="paper-meta empty-list">点击“选择文件夹”读取本机 PDF。</div>';
       return;
     }
-    const groups = new Map();
+    const groups = new Map(emptyFolders.map(folder => [folder, []]));
     rows.forEach(p => {
       const folder = folderOfPaper(p);
       if (!groups.has(folder)) groups.set(folder, []);
@@ -1027,7 +1031,7 @@
         const open = isFolderOpen(folder);
         const folderRow = document.createElement('div');
         const selectedCount = papers.filter(p => state.selected.has(p.id)).length;
-        const folderSelected = !!papers.length && selectedCount === papers.length;
+        const folderSelected = state.selectedFolders.has(folder) || (!!papers.length && selectedCount === papers.length);
         folderRow.className = 'folder-row' + (open ? ' open' : '');
         folderRow.innerHTML = `<label class="folder-check"><input type="checkbox" ${folderSelected ? 'checked' : ''} aria-label="选择文件夹" /></label><button class="folder-toggle" title="${esc(folder)}"><span class="folder-caret">${open ? '▾' : '▸'}</span><span class="folder-name">${esc(folder)}</span><span class="folder-count">${papers.length}</span></button>`;
         const folderCheckbox = folderRow.querySelector('input');
@@ -1053,6 +1057,9 @@
     const hasLibrary = !!state.files.length || !!state.directoryHandle;
     const visibleIds = new Set(rows.map(p => p.id));
     const visibleFolders = new Set(rows.map(folderOfPaper));
+    if (state.filter === 'all' && !state.tagFilter && !els.search.value.trim()) {
+      currentFolders().forEach(folder => visibleFolders.add(folder));
+    }
     const selectedVisible = [...state.selected].filter(id => visibleIds.has(id)).length;
     const selectedFolderVisible = [...state.selectedFolders].filter(folder => visibleFolders.has(folder)).length;
     els.addFolder.disabled = false;
@@ -1308,6 +1315,10 @@
 
   function scan(files, message = '已读取本机文件夹', options = {}){
     const token = ++state.scanToken;
+    const scannedFolders = Array.isArray(files._folders) ? files._folders : null;
+    if (scannedFolders) {
+      set(profileKey('customFolders'), [...new Set(scannedFolders)].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN')));
+    }
     const deduped = dedupeFiles(files);
     const presentPaths = new Set(deduped.map(pathOf));
     const replacedPaths = loadReplacedPaths();
@@ -1356,6 +1367,7 @@
 
   async function filesFromDirectoryHandle(handle){
     const files = [];
+    const topFolders = [];
     async function walk(dir, prefix){
       for await (const [entryName, entry] of dir.entries()) {
         const rel = prefix ? `${prefix}/${entryName}` : entryName;
@@ -1367,11 +1379,13 @@
           file._parentHandle = dir;
           files.push(file);
         } else if (entry.kind === 'directory') {
+          if (!prefix) topFolders.push(entryName);
           await walk(entry, rel);
         }
       }
     }
     await walk(handle, '');
+    Object.defineProperty(files, '_folders', { value: topFolders, configurable: true });
     return files;
   }
 
