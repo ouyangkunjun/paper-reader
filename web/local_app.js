@@ -31,6 +31,9 @@
     aiCaptureStream: null,
     aiCaptureVideo: null,
     aiPastedImage: null,
+    aiMessages: [],
+    aiQuestionIndex: -1,
+    aiThinking: false,
   };
   const $ = (s) => document.querySelector(s);
   const els = {
@@ -59,7 +62,7 @@
     aiSettingsForm: $('#aiSettingsForm'), aiSettingsClose: $('#aiSettingsCloseBtn'), aiKey: $('#aiKeyInput'),
     aiModel: $('#aiModelInput'), aiBase: $('#aiBaseInput'), aiPrompt: $('#aiPromptInput'), aiAnswer: $('#aiAnswer'),
     aiImagePreview: $('#aiImagePreview'), aiImagePreviewImg: $('#aiImagePreviewImg'), aiImagePreviewName: $('#aiImagePreviewName'), aiImageRemove: $('#aiImageRemoveBtn'),
-    aiSave: $('#aiSaveBtn'), aiForget: $('#aiForgetBtn'), aiAsk: $('#aiAskBtn'),
+    aiSave: $('#aiSaveBtn'), aiForget: $('#aiForgetBtn'), aiAsk: $('#aiAskBtn'), aiClearChat: $('#aiClearChatBtn'),
     aiScreenshotMode: $('#aiScreenshotModeBtn'), screenshotCaptureLayer: $('#screenshotCaptureLayer'), screenshotMarquee: $('#screenshotMarquee')
   };
 
@@ -237,14 +240,138 @@
   }
 
   function responseText(payload){
-    if (payload.output_text) return payload.output_text;
+    if (payload.output_text) return normalizeAiText(payload.output_text);
     const chunks = [];
     (payload.output || []).forEach(item => (item.content || []).forEach(part => {
       if (part.text) chunks.push(part.text);
       if (part.type === 'output_text' && part.text) chunks.push(part.text);
     }));
-    if (chunks.length) return chunks.join('\n');
-    return payload.choices?.[0]?.message?.content || JSON.stringify(payload, null, 2);
+    if (chunks.length) return normalizeAiText(chunks.join('\n'));
+    const content = payload.choices?.[0]?.message?.content;
+    if (Array.isArray(content)) return normalizeAiText(content.map(part => part?.text || part?.content || '').join('\n'));
+    return normalizeAiText(content || JSON.stringify(payload, null, 2));
+  }
+
+  function normalizeAiText(value){
+    return String(value || '').replace(/\u0000/g, '').replace(/\r\n?/g, '\n').normalize('NFC').trim();
+  }
+
+  function aiChatKey(p){ return p ? key('aiChat', p.id) : ''; }
+
+  function loadAiChat(p){
+    const saved = p ? get(aiChatKey(p), { items: [] }) : { items: [] };
+    state.aiMessages = Array.isArray(saved?.items) ? saved.items.filter(item => item && item.content).slice(-100) : [];
+    state.aiQuestionIndex = -1;
+    state.aiThinking = false;
+    renderAiChat(false);
+  }
+
+  function saveAiChat(){
+    if (state.active) set(aiChatKey(state.active), { items: state.aiMessages.slice(-100), updatedAt: new Date().toISOString() });
+  }
+
+  function appendAiMessage(role, content, extra = {}){
+    const text = normalizeAiText(content);
+    if (!text) return;
+    state.aiMessages.push({ id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2), role, content: text, createdAt: new Date().toISOString(), hasImage: !!extra.hasImage });
+    state.aiMessages = state.aiMessages.slice(-100);
+    saveAiChat();
+    renderAiChat();
+  }
+
+  function aiInlineMarkdown(value){
+    const code = [];
+    let text = esc(value).replace(/`([^`\n]+)`/g, (_, body) => {
+      const token = '@@AICODE' + code.length + '@@';
+      code.push('<code>' + body + '</code>');
+      return token;
+    });
+    text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/__([^_]+)__/g, '<strong>$1</strong>')
+      .replace(/_([^_\n]+)_/g, '<em>$1</em>')
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href=$2 target=_blank rel=noopener>$1</a>');
+    code.forEach((html, index) => { text = text.replace('@@AICODE' + index + '@@', html); });
+    return text;
+  }
+
+  function renderAiMarkdown(value){
+    const codeBlocks = [];
+    const source = normalizeAiText(value).replace(/```(?:[^\n]*)\n?([\s\S]*?)```/g, (_, body) => {
+      const token = '@@AIBLOCK' + codeBlocks.length + '@@';
+      codeBlocks.push('<pre><code>' + esc(body.trim()) + '</code></pre>');
+      return token;
+    });
+    const lines = source.split('\n');
+    const html = [];
+    for (let i = 0; i < lines.length;) {
+      const line = lines[i];
+      if (!line.trim()) { i++; continue; }
+      const block = line.trim().match(/^@@AIBLOCK(\d+)@@$/);
+      if (block) { html.push(codeBlocks[Number(block[1])] || ''); i++; continue; }
+      const heading = line.match(/^(#{1,4})\s+(.+)$/);
+      if (heading) { const level = Math.min(4, heading[1].length + 1); html.push('<h' + level + '>' + aiInlineMarkdown(heading[2]) + '</h' + level + '>'); i++; continue; }
+      if (/^\s*[-*+]\s+/.test(line)) {
+        const items = [];
+        while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) items.push('<li>' + aiInlineMarkdown(lines[i++].replace(/^\s*[-*+]\s+/, '')) + '</li>');
+        html.push('<ul>' + items.join('') + '</ul>'); continue;
+      }
+      if (/^\s*\d+[.)]\s+/.test(line)) {
+        const items = [];
+        while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) items.push('<li>' + aiInlineMarkdown(lines[i++].replace(/^\s*\d+[.)]\s+/, '')) + '</li>');
+        html.push('<ol>' + items.join('') + '</ol>'); continue;
+      }
+      if (/^\s*>\s?/.test(line)) {
+        const quote = [];
+        while (i < lines.length && /^\s*>\s?/.test(lines[i])) quote.push(aiInlineMarkdown(lines[i++].replace(/^\s*>\s?/, '')));
+        html.push('<blockquote>' + quote.join('<br>') + '</blockquote>'); continue;
+      }
+      const paragraph = [];
+      while (i < lines.length && lines[i].trim() && !/^@@AIBLOCK\d+@@$/.test(lines[i].trim()) && !/^(#{1,4})\s+/.test(lines[i]) && !/^\s*[-*+]\s+/.test(lines[i]) && !/^\s*\d+[.)]\s+/.test(lines[i]) && !/^\s*>\s?/.test(lines[i])) paragraph.push(aiInlineMarkdown(lines[i++]));
+      html.push('<p>' + paragraph.join('<br>') + '</p>');
+    }
+    return html.join('');
+  }
+
+  function copyText(text){
+    if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+    const area = document.createElement('textarea');
+    area.value = text; document.body.appendChild(area); area.select(); document.execCommand('copy'); area.remove();
+    return Promise.resolve();
+  }
+
+  function renderAiChat(scroll = true){
+    if (!els.aiAnswer) return;
+    els.aiAnswer.innerHTML = '';
+    if (!state.aiMessages.length && !state.aiThinking) {
+      els.aiAnswer.innerHTML = '<div class=ai-chat-empty>这里会保存当前文献的连续对话。<br>Enter 发送，Shift + Enter 换行。</div>';
+      return;
+    }
+    state.aiMessages.forEach(message => {
+      const row = document.createElement('article');
+      row.className = 'chat-message ' + (message.role === 'user' ? 'user' : message.role === 'error' ? 'error' : 'assistant');
+      const bubble = document.createElement('div');
+      bubble.className = 'chat-bubble chat-content';
+      bubble.innerHTML = renderAiMarkdown(message.content);
+      row.appendChild(bubble);
+      const meta = document.createElement('div');
+      meta.className = 'chat-meta';
+      const time = new Date(message.createdAt || Date.now());
+      const label = message.role === 'user' ? (message.hasImage ? '你 · 含图片' : '你') : message.role === 'error' ? '错误' : 'AI';
+      meta.append(document.createTextNode(label + ' · ' + time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })));
+      if (message.role !== 'user') {
+        const copy = document.createElement('button');
+        copy.type = 'button'; copy.className = 'chat-copy'; copy.textContent = '复制';
+        copy.onclick = () => copyText(message.content).then(() => toast('回答已复制')).catch(() => toast('复制失败'));
+        meta.appendChild(copy);
+      }
+      row.appendChild(meta);
+      els.aiAnswer.appendChild(row);
+      renderMath(bubble);
+    });
+    if (state.aiThinking) {
+      const row = document.createElement('article'); row.className = 'chat-message assistant'; row.innerHTML = '<div class=chat-bubble>正在思考...</div>'; els.aiAnswer.appendChild(row);
+    }
+    if (scroll) requestAnimationFrame(() => { els.aiAnswer.scrollTop = els.aiAnswer.scrollHeight; });
   }
 
   function aiFriendlyError(err, endpoint, imageData){
@@ -336,22 +463,33 @@
     }
   }
 
-  async function runAiTask({ prompt, system, imageData, busyText, buttons = [] }){
+  async function runAiTask({ prompt, system, imageData, busyText, buttons = [], conversation = [], manageAnswer = true }){
     const settings = currentAiSettings();
     const keyValue = settings.key;
     const endpoint = normalizeAiEndpoint(settings.baseUrl);
     const model = aiModelFor(endpoint, settings.model, imageData);
-    if (!keyValue) { els.aiAnswer.textContent = '请先在顶部“AI 设置”里填写并保存 API Key。'; return; }
-    if (!prompt) { els.aiAnswer.textContent = '请先输入内容。'; return; }
+    const showStatus = message => { if (manageAnswer) toast(message); };
+    if (!keyValue) {
+      const error = new Error('请先在顶部“AI 设置”里填写并保存 API Key。');
+      if (manageAnswer) { showStatus(error.message); return ''; }
+      throw error;
+    }
+    if (!prompt) {
+      const error = new Error('请先输入内容。');
+      if (manageAnswer) { showStatus(error.message); return ''; }
+      throw error;
+    }
     buttons.forEach(btn => { if (btn) btn.disabled = true; });
-    els.aiAnswer.textContent = busyText || '正在请求 AI...';
+    showStatus(busyText || '正在请求 AI...');
     try {
       const responsesApi = !isChatEndpoint(endpoint);
+      const prior = conversation.filter(item => item && (item.role === 'user' || item.role === 'assistant') && item.content).slice(-16);
       const body = isChatEndpoint(endpoint)
         ? {
             model,
             messages: [
               { role: 'system', content: system || '你是文献阅读助手。请基于用户提供的文献信息回答，无法判断时明确说明。' },
+              ...prior.map(item => ({ role: item.role, content: item.content })),
               { role: 'user', content: aiUserContent(prompt, imageData, responsesApi) }
             ],
             max_completion_tokens: 2048
@@ -360,6 +498,7 @@
             model,
             input: [
               { role: 'system', content: system || '你是文献阅读助手。请基于用户提供的文献信息回答，无法判断时明确说明。' },
+              ...prior.map(item => ({ role: item.role, content: item.content })),
               { role: 'user', content: aiUserContent(prompt, imageData, responsesApi) }
             ]
           };
@@ -375,27 +514,77 @@
         throw error;
       }
       const answer = responseText(payload);
-      els.aiAnswer.textContent = answer;
+      if (manageAnswer) showStatus('AI 回答已生成');
       return answer;
     } catch (err) {
-      els.aiAnswer.textContent = aiFriendlyError(err, endpoint, imageData);
-      return '';
+      const friendly = aiFriendlyError(err, endpoint, imageData);
+      if (manageAnswer) { showStatus(friendly); return ''; }
+      throw new Error(friendly);
     } finally {
       buttons.forEach(btn => { if (btn) btn.disabled = false; });
     }
   }
 
   async function askAi(){
+    if (state.aiThinking) return;
+    if (!state.active) { toast('请先打开一篇文献'); return; }
     const typedQuestion = els.aiPrompt.value.trim();
     const imageData = state.aiPastedImage?.dataUrl || '';
-    if (!typedQuestion && !imageData) { els.aiAnswer.textContent = '请先输入问题或粘贴图片。'; return; }
+    if (!typedQuestion && !imageData) { toast('请先输入问题或粘贴图片'); return; }
     const question = typedQuestion || '请结合当前文献分析这张图片，并说明图片中的关键信息。';
-    await runAiTask({
-      prompt: `${aiContextText()}\n\n问题：${question}`,
-      busyText: '正在请求 AI...',
-      imageData,
-      buttons: [els.aiAsk]
-    });
+    const conversation = state.aiMessages.filter(item => item.role === 'user' || item.role === 'assistant').slice(-16).map(item => ({ role: item.role, content: item.content }));
+    appendAiMessage('user', question, { hasImage: !!imageData });
+    els.aiPrompt.value = '';
+    clearPastedImage();
+    state.aiQuestionIndex = -1;
+    state.aiThinking = true;
+    renderAiChat();
+    try {
+      const answer = await runAiTask({
+        prompt: question,
+        system: '你是严谨的学术文献阅读助手。请结合当前文献和连续对话回答。使用清楚的 Markdown：先直接回答，再用小标题、加粗和列表突出重点；公式保持 LaTeX；不要编造。\n\n当前文献：\n' + aiContextText(),
+        busyText: '正在请求 AI...',
+        imageData,
+        conversation,
+        manageAnswer: false,
+        buttons: [els.aiAsk]
+      });
+      appendAiMessage('assistant', answer || '接口没有返回可显示的文字。');
+    } catch (err) {
+      appendAiMessage('error', err.message || 'AI 请求失败');
+    } finally {
+      state.aiThinking = false;
+      renderAiChat();
+      els.aiPrompt.focus();
+    }
+  }
+
+  function clearAiChat(){
+    if (!state.active) { toast('请先打开一篇文献'); return; }
+    if (!state.aiMessages.length) { toast('当前文献还没有对话'); return; }
+    if (!confirm('清空当前文献的全部 AI 对话？')) return;
+    localStorage.removeItem(aiChatKey(state.active));
+    state.aiMessages = [];
+    state.aiQuestionIndex = -1;
+    renderAiChat(false);
+    toast('已清空当前文献的对话');
+  }
+
+  function handleAiPromptKeydown(event){
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
+      event.preventDefault();
+      askAi();
+      return;
+    }
+    if (event.isComposing || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
+    const questions = state.aiMessages.filter(item => item.role === 'user').map(item => item.content);
+    if (!questions.length || (els.aiPrompt.value.trim() && state.aiQuestionIndex < 0)) return;
+    event.preventDefault();
+    if (state.aiQuestionIndex < 0) state.aiQuestionIndex = questions.length;
+    state.aiQuestionIndex += event.key === 'ArrowUp' ? -1 : 1;
+    state.aiQuestionIndex = Math.max(0, Math.min(questions.length, state.aiQuestionIndex));
+    els.aiPrompt.value = state.aiQuestionIndex === questions.length ? '' : questions[state.aiQuestionIndex];
+    els.aiPrompt.setSelectionRange(els.aiPrompt.value.length, els.aiPrompt.value.length);
   }
 
   function selectionInfo(){
@@ -486,13 +675,13 @@
       if (state.active) renderDoc(state.active.file, els.orig, '无法显示原文。');
       positionScreenshotLayer();
       els.screenshotCaptureLayer.classList.remove('hidden');
-      els.aiAnswer.textContent = '截图翻译已开启：在文献区拖框即可翻译。第一次拖框时会请求页面截图权限。';
+      toast('截图翻译已开启，在文献区拖框即可翻译');
     } else {
       els.screenshotCaptureLayer.classList.add('hidden');
       els.screenshotMarquee.classList.add('hidden');
       stopCaptureStream();
       if (state.active) renderDoc(state.active.file, els.orig, '无法显示原文。', { nativePdf: true });
-      els.aiAnswer.textContent = '截图翻译已关闭。';
+      toast('截图翻译已关闭');
     }
   }
 
@@ -615,13 +804,11 @@
   async function translateScreenshot(rect){
     setAiHidden(false);
     if (!rect || rect.width < 12 || rect.height < 12) {
-      els.aiAnswer.textContent = '框选区域太小，请重新拖一个截图框。';
+      toast('框选区域太小，请重新拖一个截图框');
       return;
     }
     const extra = els.aiPrompt.value.trim();
-    els.aiAnswer.textContent = state.aiCaptureVideo
-      ? '正在截取并翻译...'
-      : '第一次截图需要授权。浏览器弹窗出现时，请选择当前标签页或当前窗口。';
+    toast(state.aiCaptureVideo ? '正在截取并翻译...' : '第一次截图需要授权，请选择当前标签页或窗口');
     try {
       els.screenshotMarquee.classList.add('hidden');
       els.screenshotCaptureLayer.classList.add('hidden');
@@ -632,11 +819,12 @@
         system: '你是专业学术截图翻译助手，先识别截图内容，再给出中文翻译。',
         imageData,
         busyText: '正在翻译截图...',
+        manageAnswer: false,
         buttons: [els.aiScreenshotMode, els.aiScreenshotTop]
       });
       showAiBubble(answer, rect, 'screenshot');
     } catch (err) {
-      els.aiAnswer.textContent = `截图翻译失败：${err.message}\n\n请确认浏览器截图权限里选择的是当前标签页或当前窗口。`;
+      toast('截图翻译失败：' + (err.message || '请检查截图权限'));
     } finally {
       if (state.aiScreenshotMode) {
         positionScreenshotLayer();
@@ -1663,6 +1851,7 @@
     els.trans.className = 'viewer empty'; els.trans.textContent = '未选择文献。';
     els.read.disabled = els.save.disabled = els.add.disabled = true;
     state.notes = { items: [] };
+    loadAiChat(null);
     renderNotes();
     renderDetail();
   }
@@ -1788,6 +1977,7 @@
 
   async function openPaper(p, options = {}){
     state.active = p; state.notes = loadNotes(p);
+    loadAiChat(p);
     saveActivePaper(p);
     updateMeta(p, { lastOpenedAt: new Date().toISOString() });
     const translation = paperTranslation(p);
@@ -1914,7 +2104,7 @@
 
   function moveStoredPaperData(oldId, newId){
     if (!oldId || !newId || oldId === newId) return;
-    ['read','notes','meta'].forEach(kind => {
+    ['read','notes','meta','aiChat'].forEach(kind => {
       const oldKey = key(kind, oldId);
       const value = localStorage.getItem(oldKey);
       if (value && !localStorage.getItem(key(kind, newId))) localStorage.setItem(key(kind, newId), value);
@@ -2068,7 +2258,7 @@
     if (payload.app !== 'paper-reader' || !payload.items) throw new Error('不是 Paper Reader 导出的数据');
     Object.entries(payload.items).forEach(([k, v]) => { if (k.startsWith(BASE_PREFIX)) localStorage.setItem(k, v); });
     toast('数据已导入');
-    if (state.active) { state.notes = loadNotes(state.active); renderNotes(); }
+    if (state.active) { state.notes = loadNotes(state.active); renderNotes(); loadAiChat(state.active); }
     renderList(); updateRead();
     renderDetail(); checkBackupReminder();
   }
@@ -2076,7 +2266,7 @@
   function hasUserData(){
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i) || '';
-      if (k.startsWith(storagePrefix()) && /\.(notes|meta|read)\./.test(k)) return true;
+      if (k.startsWith(storagePrefix()) && /\.(notes|meta|read|aiChat)\./.test(k)) return true;
     }
     return false;
   }
@@ -2158,10 +2348,13 @@
   els.aiForget.onclick = () => {
     localStorage.removeItem(profileKey('aiSettings'));
     els.aiKey.value = '';
-    els.aiAnswer.textContent = '已清除当前浏览器保存的 API Key。';
+    toast('已清除当前浏览器保存的 API Key');
   };
   els.aiAsk.onclick = askAi;
   els.aiPrompt.addEventListener('paste', handleAiImagePaste);
+  els.aiPrompt.addEventListener('keydown', handleAiPromptKeydown);
+  els.aiPrompt.addEventListener('input', () => { state.aiQuestionIndex = -1; });
+  els.aiClearChat.onclick = clearAiChat;
   els.aiImageRemove.onclick = clearPastedImage;
   els.aiScreenshotMode.onclick = () => setScreenshotMode(!state.aiScreenshotMode);
   els.aiScreenshotTop.onclick = () => setScreenshotMode(!state.aiScreenshotMode);
