@@ -966,6 +966,7 @@
 
   function currentFolders(){
     return [...new Set([...savedFolders(), ...state.files.map(f => folderOfPath(pathOf(f))).filter(folder => folder !== '根目录')])]
+      .filter(folder => !folder.startsWith('.'))
       .sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
   }
 
@@ -1373,6 +1374,7 @@
     const topFolders = [];
     async function walk(dir, prefix){
       for await (const [entryName, entry] of dir.entries()) {
+        if (entry.kind === 'directory' && entryName.startsWith('.')) continue;
         const rel = prefix ? `${prefix}/${entryName}` : entryName;
         if (entry.kind === 'file') {
           const file = await entry.getFile();
