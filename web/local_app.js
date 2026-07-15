@@ -1003,16 +1003,21 @@
     else state.selectedFolders.delete(folder);
   }
 
+  function emptyFoldersForCurrentSearch(){
+    const query = els.search.value.trim().toLowerCase();
+    return currentFolders().filter(folder =>
+      !state.papers.some(p => folderOfPaper(p) === folder)
+      && (!query || folder.toLowerCase().includes(query))
+    );
+  }
+
   function renderList(){
     els.list.innerHTML = '';
     updateStats();
     updateTagFilterOptions();
     updateTargetFolderOptions();
     const rows = state.papers.filter(pass);
-    const showEmptyFolders = state.filter === 'all' && !state.tagFilter && !els.search.value.trim();
-    const emptyFolders = showEmptyFolders
-      ? currentFolders().filter(folder => !state.papers.some(p => folderOfPaper(p) === folder))
-      : [];
+    const emptyFolders = emptyFoldersForCurrentSearch();
     els.count.textContent = state.papers.length ? `${rows.length} / ${state.papers.length} 篇` : '请选择文件夹';
     updateLibraryTools(rows);
     if (!rows.length && !emptyFolders.length) {
@@ -1057,9 +1062,7 @@
     const hasLibrary = !!state.files.length || !!state.directoryHandle;
     const visibleIds = new Set(rows.map(p => p.id));
     const visibleFolders = new Set(rows.map(folderOfPaper));
-    if (state.filter === 'all' && !state.tagFilter && !els.search.value.trim()) {
-      currentFolders().forEach(folder => visibleFolders.add(folder));
-    }
+    emptyFoldersForCurrentSearch().forEach(folder => visibleFolders.add(folder));
     const selectedVisible = [...state.selected].filter(id => visibleIds.has(id)).length;
     const selectedFolderVisible = [...state.selectedFolders].filter(folder => visibleFolders.has(folder)).length;
     els.addFolder.disabled = false;
