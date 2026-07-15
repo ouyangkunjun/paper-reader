@@ -30,6 +30,7 @@
     aiScreenshotStart: null,
     aiCaptureStream: null,
     aiCaptureVideo: null,
+    aiPastedImage: null,
   };
   const $ = (s) => document.querySelector(s);
   const els = {
@@ -57,6 +58,7 @@
     aiBtn: $('#aiBtn'), aiPanel: $('#aiPanel'), aiSettingsBtn: $('#aiSettingsBtn'), aiScreenshotTop: $('#aiScreenshotTopBtn'), hideAi: $('#hideAiBtn'), aiSettingsDialog: $('#aiSettingsDialog'),
     aiSettingsForm: $('#aiSettingsForm'), aiSettingsClose: $('#aiSettingsCloseBtn'), aiKey: $('#aiKeyInput'),
     aiModel: $('#aiModelInput'), aiBase: $('#aiBaseInput'), aiPrompt: $('#aiPromptInput'), aiAnswer: $('#aiAnswer'),
+    aiImagePreview: $('#aiImagePreview'), aiImagePreviewImg: $('#aiImagePreviewImg'), aiImagePreviewName: $('#aiImagePreviewName'), aiImageRemove: $('#aiImageRemoveBtn'),
     aiSave: $('#aiSaveBtn'), aiForget: $('#aiForgetBtn'), aiAsk: $('#aiAskBtn'),
     aiScreenshotMode: $('#aiScreenshotModeBtn'), screenshotCaptureLayer: $('#screenshotCaptureLayer'), screenshotMarquee: $('#screenshotMarquee')
   };
@@ -273,6 +275,67 @@
       : [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: imageData } }];
   }
 
+  function readImageDataUrl(file){
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error('无法读取粘贴的图片'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function loadImage(dataUrl){
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error('粘贴内容不是有效图片'));
+      image.src = dataUrl;
+    });
+  }
+
+  async function preparePastedImage(file){
+    if (!file || !file.type.startsWith('image/')) throw new Error('剪贴板里没有图片');
+    if (file.size > 20 * 1024 * 1024) throw new Error('图片超过 20 MB，请先缩小后再粘贴');
+    const dataUrl = await readImageDataUrl(file);
+    const image = await loadImage(dataUrl);
+    const maxSide = 1800;
+    const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+    if (scale === 1 && file.size <= 4 * 1024 * 1024) return dataUrl;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', .9);
+  }
+
+  function showPastedImage(dataUrl, fileName){
+    state.aiPastedImage = { dataUrl, name: fileName || '剪贴板图片' };
+    els.aiImagePreviewImg.src = dataUrl;
+    els.aiImagePreviewName.textContent = state.aiPastedImage.name;
+    els.aiImagePreview.classList.remove('hidden');
+  }
+
+  function clearPastedImage(){
+    state.aiPastedImage = null;
+    els.aiImagePreviewImg.removeAttribute('src');
+    els.aiImagePreview.classList.add('hidden');
+  }
+
+  async function handleAiImagePaste(event){
+    const items = [...(event.clipboardData?.items || [])];
+    const imageItem = items.find(item => item.type.startsWith('image/'));
+    if (!imageItem) return;
+    event.preventDefault();
+    try {
+      const file = imageItem.getAsFile();
+      const dataUrl = await preparePastedImage(file);
+      showPastedImage(dataUrl, file?.name || '剪贴板图片');
+      toast('图片已粘贴，可以输入问题后发送');
+    } catch (err) {
+      toast(err.message || '无法粘贴图片');
+    }
+  }
+
   async function runAiTask({ prompt, system, imageData, busyText, buttons = [] }){
     const settings = currentAiSettings();
     const keyValue = settings.key;
@@ -323,11 +386,14 @@
   }
 
   async function askAi(){
-    const question = els.aiPrompt.value.trim();
-    if (!question) { els.aiAnswer.textContent = '请先输入问题。'; return; }
+    const typedQuestion = els.aiPrompt.value.trim();
+    const imageData = state.aiPastedImage?.dataUrl || '';
+    if (!typedQuestion && !imageData) { els.aiAnswer.textContent = '请先输入问题或粘贴图片。'; return; }
+    const question = typedQuestion || '请结合当前文献分析这张图片，并说明图片中的关键信息。';
     await runAiTask({
       prompt: `${aiContextText()}\n\n问题：${question}`,
       busyText: '正在请求 AI...',
+      imageData,
       buttons: [els.aiAsk]
     });
   }
@@ -2095,6 +2161,8 @@
     els.aiAnswer.textContent = '已清除当前浏览器保存的 API Key。';
   };
   els.aiAsk.onclick = askAi;
+  els.aiPrompt.addEventListener('paste', handleAiImagePaste);
+  els.aiImageRemove.onclick = clearPastedImage;
   els.aiScreenshotMode.onclick = () => setScreenshotMode(!state.aiScreenshotMode);
   els.aiScreenshotTop.onclick = () => setScreenshotMode(!state.aiScreenshotMode);
   const toolbarMore = document.querySelector('.toolbar-more');
