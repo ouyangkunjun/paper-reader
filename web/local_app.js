@@ -96,10 +96,8 @@
     const target = new Set(tokensOf(b));
     if (!source.size || !target.size) return 0;
     let hit = 0;
-    for (const t of target) {
-      if (source.has(t) || [...source].some(s => s.includes(t) || t.includes(s))) hit++;
-    }
-    return hit / Math.min(source.size, target.size);
+    for (const t of target) if (source.has(t)) hit++;
+    return (2 * hit) / (source.size + target.size);
   }
   function pathOf(f){ return f.webkitRelativePath || f._relativePath || f.name; }
   function id(f){ return [pathOf(f), f.size, f.lastModified].join('|'); }
@@ -695,7 +693,9 @@
       for (const b of titleValues(target)) {
         const compactB = compactStem(b);
         if (!compactB) continue;
-        const includes = compactA.length >= 8 && compactB.length >= 8 && (compactA.includes(compactB) || compactB.includes(compactA));
+        const lengthRatio = Math.min(compactA.length, compactB.length) / Math.max(compactA.length, compactB.length);
+        const includes = compactA.length >= 12 && compactB.length >= 12 && lengthRatio >= .72
+          && (compactA.includes(compactB) || compactB.includes(compactA));
         const score = compactA === compactB || includes ? 1 : tokenScore(a, b);
         best = Math.max(best, score);
       }
@@ -1129,12 +1129,12 @@
       .map(t => {
         const compact = compactStem(t.pdfTitle || t.docTitle || t.path);
         const titleScore = titleMatchScore(source, t);
-        const pathScore = compact === sourceStem || compact.includes(sourceStem) || sourceStem.includes(compact)
-          ? 1
-          : tokenScore(source.path, t.path);
-        return { item: t, compact, score: Math.max(titleScore, pathScore) };
+        const lengthRatio = Math.min(compact.length, sourceStem.length) / Math.max(compact.length, sourceStem.length);
+        const strongPathMatch = compact === sourceStem || (compact.length >= 12 && sourceStem.length >= 12 && lengthRatio >= .82
+          && (compact.includes(sourceStem) || sourceStem.includes(compact)));
+        return { item: t, compact, score: strongPathMatch ? 1 : titleScore };
       })
-      .filter(t => t.score >= .55 || (t.compact.length >= 8 && (t.compact.includes(sourceStem) || sourceStem.includes(t.compact))))
+      .filter(t => t.score >= .82)
       .sort((a, b) => b.score - a.score || Math.abs(a.compact.length - sourceStem.length) - Math.abs(b.compact.length - sourceStem.length));
     return candidates[0]?.item || null;
   }
