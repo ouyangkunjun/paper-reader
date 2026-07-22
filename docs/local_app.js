@@ -865,6 +865,16 @@
   function saveUsers(users){ set(appKey('users'), users); }
   function loadReplacedPaths(){ return get(profileKey('replacedPaths'), {}); }
   function saveReplacedPaths(paths){ set(profileKey('replacedPaths'), paths); }
+  function replacementTarget(record){ return typeof record === 'string' ? record : record?.path || ''; }
+
+  function likelySamePaperPath(oldPath, newPath){
+    if (isGeneratedPdfName(oldPath) || isGeneratedPdfName(newPath)) return true;
+    const oldStem = compactStem(oldPath), newStem = compactStem(newPath);
+    if (!oldStem || !newStem) return false;
+    if (oldStem === newStem) return true;
+    const ratio = Math.min(oldStem.length, newStem.length) / Math.max(oldStem.length, newStem.length);
+    return ratio >= .86 && (oldStem.includes(newStem) || newStem.includes(oldStem) || tokenScore(oldPath, newPath) >= .9);
+  }
 
   function cleanPdfTitle(value){
     const title = String(value || '').replace(/\.pdf$/i, '').replace(/\s+/g, ' ').trim();
@@ -930,8 +940,6 @@
     });
     const doi = titleValues(p).join(' ').match(/10\.\d{4,9}\/[-._;()/:a-z0-9]+/i)?.[0];
     if (doi) keys.add('doi:' + doi.toLowerCase());
-    const tr = paperTranslation(p);
-    if (tr?.path) keys.add('translation:' + titleKey(tr.path));
     return [...keys];
   }
 
@@ -1436,7 +1444,7 @@
         if (p === best) continue;
         hidden.add(p.id);
         if (!replacedPaths[p.path]) {
-          replacedPaths[p.path] = best.path;
+          replacedPaths[p.path] = { path: best.path, reason: 'duplicate', updatedAt: new Date().toISOString() };
           changed = true;
         }
       }
@@ -1556,7 +1564,8 @@
     let removed = 0;
     for (const f of files) {
       const oldPath = pathOf(f);
-      if (!replacedPaths[oldPath] || !presentPaths.has(replacedPaths[oldPath])) continue;
+      const targetPath = replacementTarget(replacedPaths[oldPath]);
+      if (!targetPath || !presentPaths.has(targetPath)) continue;
       const parent = f._parentHandle;
       const entryName = f._entryName || f.name;
       if (!parent?.removeEntry || !parent.queryPermission) continue;
@@ -1581,15 +1590,20 @@
     const presentPaths = new Set(deduped.map(pathOf));
     const replacedPaths = loadReplacedPaths();
     let changedReplacements = false;
-    for (const [oldPath, newPath] of Object.entries(replacedPaths)) {
-      if (!presentPaths.has(newPath)) {
+    for (const [oldPath, record] of Object.entries(replacedPaths)) {
+      const newPath = replacementTarget(record);
+      const unsafeLegacyRecord = typeof record === 'string' && !likelySamePaperPath(oldPath, newPath);
+      if (!newPath || !presentPaths.has(newPath) || unsafeLegacyRecord) {
         delete replacedPaths[oldPath];
         changedReplacements = true;
       }
     }
     if (changedReplacements) saveReplacedPaths(replacedPaths);
     cleanupHiddenReplacedFiles(deduped, replacedPaths, presentPaths).catch(() => {});
-    state.files = deduped.filter(f => !replacedPaths[pathOf(f)] || !presentPaths.has(replacedPaths[pathOf(f)]));
+    state.files = deduped.filter(f => {
+      const targetPath = replacementTarget(replacedPaths[pathOf(f)]);
+      return !targetPath || !presentPaths.has(targetPath);
+    });
     state.selected = new Set([...state.selected].filter(pid => state.files.some(f => id(f) === pid)));
     state.selectedFolders = new Set([...state.selectedFolders].filter(folder => state.files.some(f => folderOfPath(pathOf(f)) === folder)));
     currentFolders().forEach(saveFolderName);
@@ -1668,11 +1682,13 @@
         const handle = await window.showDirectoryPicker({ mode: 'read' });
         const files = await filesFromDirectoryHandle(handle);
         saveFolderName(handle.name);
+        prepareAddedLocation(handle.name);
         if (state.directoryHandle && await copyFilesToLibrary(files, handle.name)) {
           toast(`已添加文件夹 ${handle.name}`);
           return;
         }
-        scan([...state.files, ...files], '已添加文件夹');
+        const staged = files.map(file => attachFileHandleInfo(file, `${handle.name}/${pathOf(file)}`, file._entryName || file.name, file._parentHandle));
+        scan([...state.files, ...staged], '已添加文件夹');
         return;
       } catch (err) {
         if (err.name === 'AbortError') return;
@@ -1733,18 +1749,45 @@
     }
   }
 
+  function prepareAddedLocation(folderName = ''){
+    const folder = folderName || '根目录';
+    state.filter = 'all';
+    state.tagFilter = '';
+    if (els.search) els.search.value = '';
+    if (els.tagFilter) els.tagFilter.value = '';
+    if (els.filters) els.filters.querySelectorAll('button').forEach(btn => btn.classList.toggle('active', btn.dataset.filter === 'all'));
+    setFolderOpen(folder, true);
+    saveViewState();
+  }
+
+  async function focusAddedPaper(expectedPaths){
+    const paths = new Set(expectedPaths.map(normalizePath));
+    const paper = state.papers.find(item => paths.has(normalizePath(item.path)));
+    renderList();
+    if (!paper) return false;
+    await openPaper(paper);
+    requestAnimationFrame(() => els.list.querySelector('.paper-row.active')?.scrollIntoView({ block: 'nearest' }));
+    return true;
+  }
+
   async function addFiles(files){
     if (!files.length) return;
     const folderName = els.targetFolder?.value || '';
+    const expectedPaths = files.map(file => normalizePath(folderName ? `${folderName}/${cleanPathSegment(file.name)}` : cleanPathSegment(file.name)));
+    prepareAddedLocation(folderName);
     try {
       if (await copyFilesToLibrary(files, folderName)) {
-        toast(`已添加 ${files.length} 个文件${folderName ? '到 ' + folderName : ''}`);
+        const visible = await focusAddedPaper(expectedPaths);
+        toast(visible ? `已添加并显示 ${files.length} 个文件` : `已添加 ${files.length} 个文件；左栏只单独显示原文 PDF`);
         return;
       }
     } catch (err) {
       toast('无法写入文件夹，已临时加入列表');
     }
-    scan([...state.files, ...files], `已临时加入 ${files.length} 个文件`);
+    const staged = files.map((file, index) => attachFileHandleInfo(file, expectedPaths[index], file.name, null));
+    scan([...state.files, ...staged], `已临时加入 ${files.length} 个文件`);
+    const visible = await focusAddedPaper(expectedPaths);
+    if (!visible) toast('文件已加入；Markdown、TXT 和译文 PDF 需要绑定到原文，不会单独显示为文献');
   }
 
   function selectedPapers(){
@@ -2122,7 +2165,7 @@
   function rememberReplacedPath(oldPath, newPath){
     if (!oldPath || !newPath || oldPath === newPath) return;
     const replacedPaths = loadReplacedPaths();
-    replacedPaths[oldPath] = newPath;
+    replacedPaths[oldPath] = { path: newPath, reason: 'replacement', updatedAt: new Date().toISOString() };
     saveReplacedPaths(replacedPaths);
   }
 
