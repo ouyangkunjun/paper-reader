@@ -305,9 +305,9 @@ body.resizing .native-pdf-frame {
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto;
-  align-items: start;
-  gap: 14px;
+  grid-template-columns: minmax(220px, 1fr) minmax(520px, 620px);
+  align-items: center;
+  gap: 20px;
 }
 .title-block { min-width: 0; max-width: 100%; }
 .topbar h2 {
@@ -328,15 +328,17 @@ body.resizing .native-pdf-frame {
   font-size: 12px;
 }
 .toolbar {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(88px, max-content));
-  align-items: start;
+  width: 100%;
+  max-width: 620px;
+  display: flex;
+  align-items: center;
+  align-content: center;
   justify-content: end;
-  gap: 8px 8px;
+  gap: 8px;
   flex-wrap: wrap;
   min-width: 0;
-  max-width: 100%;
 }
+.toolbar > * { flex: 0 0 auto; }
 .toolbar button,
 .toolbar select {
   min-height: 36px;
@@ -500,10 +502,11 @@ body.compact-top .topbar h2 {
   max-width: 100%;
 }
 body.compact-top .toolbar {
-  grid-template-columns: repeat(auto-fit, minmax(82px, max-content));
+  display: flex;
+  width: 100%;
+  max-width: none;
   justify-content: end;
   gap: 6px;
-  max-width: 100%;
 }
 body.compact-top .toolbar button,
 body.compact-top .toolbar select,
@@ -1000,8 +1003,8 @@ dialog p { margin: 0 0 16px; color: var(--muted); line-height: 1.6; }
   body.notes-hidden .viewer-grid { grid-template-columns: minmax(220px,1fr) 6px minmax(220px,1fr) 6px minmax(260px,var(--ai-width, 320px)); }
   body.ai-hidden .viewer-grid { grid-template-columns: minmax(220px,1fr) 6px minmax(220px,1fr) 6px minmax(220px,var(--notes-width)); }
   body.notes-hidden.ai-hidden .viewer-grid { grid-template-columns: minmax(220px,1fr) 6px minmax(220px,1fr); }
-  .topbar { grid-template-columns: 1fr; }
-  .toolbar { justify-content: start; }
+  .topbar { grid-template-columns: 1fr; align-items: start; }
+  .toolbar { width: 100%; max-width: none; justify-content: start; }
   .toolbar-more-menu { left: 0; right: auto; }
   .detail-main { grid-template-columns: minmax(0,1fr); }
   .detail-actions { justify-content: flex-start; max-width: none; }
@@ -1025,7 +1028,7 @@ dialog p { margin: 0 0 16px; color: var(--muted); line-height: 1.6; }
   }
   .notes { min-height: 320px; }
   .topbar { min-height: auto; }
-  .toolbar { grid-template-columns: repeat(2, minmax(0,1fr)); width: 100%; }
+  .toolbar { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); width: 100%; }
   .toolbar button, .toolbar select, .toolbar-more { width: 100%; }
   .toolbar-more-menu {
     position: fixed;
